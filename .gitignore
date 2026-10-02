@@ -1,0 +1,23 @@
+# Installed packages (anyone can restore them with "npm install")
+node_modules/
+
+# Build output
+dist/
+release/
+*.zip
+
+# Backups made while editing, and build logs
+_backup*/
+_build/build.log
+
+# Old compiler output that ended up next to the sources (the app uses dist/)
+/src/*.js
+/src/*.js.map
+/src/*.d.ts
+/src/*.d.ts.map
+
+# Odds and ends
+src/New Text Document.txt
+Thumbs.db
+desktop.ini
+.DS_Store

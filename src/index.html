@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mystara Character Sheet</title>
+    <!-- Apply the saved light/dark choice before first paint (no flash). -->
+    <script>try { var t = localStorage.getItem('sheet-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}</script>
+    <!-- Cinzel, EB Garamond and Uncial Antiqua; offline, the Windows fallbacks in style.css are used. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Uncial+Antiqua&display=swap">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="dashboard">
+        
+        <!-- УПРАВЛЕНИЕ ПЕРСОНАЖАМИ (ROSTER) -->
+        <div class="card" style="display: flex; align-items: center; padding: 12px 20px;">
+            <div style="display: flex; gap: 10px; align-items: center; width: 100%; flex-wrap: wrap;">
+                <label for="character-roster" class="roster-label">Roster</label>
+                <select id="character-roster" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; min-height: 40px; border-radius: 2px; text-align: left; max-width: 280px; font-size: 1rem;">
+                    <option value="">-- Select Character --</option>
+                </select>
+                <button id="delete-char-btn" type="button" class="btn btn-danger" style="display: none;">Delete</button>
+
+                <!-- КНОПКИ EXPORT / IMPORT -->
+                <button type="button" id="export-json-btn" class="btn" onclick="exportCharacterJSON()">
+                    <span data-icon="export" data-size="18"></span>
+                    Export
+                </button>
+
+                <button type="button" id="import-json-btn" class="btn" onclick="triggerImportJSON()">
+                    <span data-icon="import" data-size="18"></span>
+                    Import
+                </button>
+
+                <button type="button" onclick="openHistoryModal()" id="history-btn" class="btn" title="Earlier versions of this character">
+                    <span data-icon="hourglass" data-size="18"></span>
+                    History
+                </button>
+                <button type="button" onclick="openPartyView()" id="party-btn" class="btn" title="All party members, the party treasury, dividing treasure and XP">
+                    <span data-icon="party" data-size="18"></span>
+                    Party
+                </button>
+                <input type="file" id="import-json-file" accept=".json" style="display: none;" onchange="handleImportFile(event)">
+
+                <button id="new-char-btn" type="button" class="btn btn-primary" style="margin-left: auto;">+ New Character</button>
+                <button id="theme-toggle-btn" type="button" class="btn btn-icon" onclick="toggleTheme()" aria-label="Switch between light and dark mode" title="Switch between light and dark mode">
+                    <span data-icon="candle" data-size="20"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- HEADER -->
+        <header class="card sheet-header">
+            <div class="name-section">
+                <h1><input type="text" id="char-name" class="stat-input text-left" value="Name"></h1>
+            </div>
+            <div class="meta-section">
+                <div class="meta-group">
+                    <label>Class</label>
+                    <select id="char-class" class="stat-input">
+                        <option value="Fighter">Fighter</option>
+                        <option value="Cleric">Cleric</option>
+                        <option value="Magic-User">Magic-User</option>
+                        <option value="Thief">Thief</option>
+                        <option value="Dwarf">Dwarf</option>
+                        <option value="Elf">Elf</option>
+                        <option value="Halfling">Halfling</option>
+                        <option value="Mystic">Mystic</option>
+                        <optgroup label="Mystara Extra Rules Compendium">
+                            <option value="Archer">Archer</option>
+                            <option value="Bandit">Bandit</option>
+                            <option value="Battlecaster">Battlecaster</option>
+                            <option value="Beastmaster">Beastmaster (WIP)</option>
+                            <option value="Bounty Hunter">Bounty Hunter</option>
+                            <option value="Rake">Rake</option>
+                            <option value="Witch">Witch (WIP)</option>
+                        </optgroup>
+                        <optgroup label="GAZ13 The Shadow Elves">
+                            <option value="Shadow Elf">Shadow Elf</option>
+                        </optgroup>
+                        <optgroup label="PC1 Tall Tales of the Wee Folk">
+                            <option value="Centaur">Centaur</option>
+                        </optgroup>
+                        <optgroup label="PC2 Top Ballista">
+                            <option value="Gnome">Gnome</option>
+                            <option value="Skygnome">Skygnome</option>
+                        </optgroup>
+                    </select>
+                    <div id="class-req-warning" style="display: none; font-size: 0.7rem; color: var(--warn); margin-top: 2px; max-width: 220px; line-height: 1.3;"></div>
+                </div>
+                
+                <div class="meta-group">
+                    <label>Sub-Class</label>
+                    <select id="char-subclass" class="stat-input">
+                        <option value="">None</option>
+                        <option value="Paladin">Paladin</option>
+                        <option value="Avenger">Avenger</option>
+                        <option value="Arcane Warrior">Arcane Warrior</option>
+                    </select>
+                </div>
+                <div class="meta-group" id="subclass-level-group" style="display: none;">
+                    <label>Sub Level</label>
+                    <input type="number" id="char-sublevel" class="stat-input" value="1" style="border-bottom: 1px solid var(--border-color); border-radius: 0;">
+                </div>
+                <div class="meta-group" id="arcane-start-group" style="display: none;">
+                    <label>Pact Level</label>
+                    <input type="number" id="char-arcane-start" class="stat-input" value="9" style="border-bottom: 1px solid var(--border-color); border-radius: 0;">
+                </div>
+                <div class="meta-group" id="deity-group" style="display: none;">
+                    <label>Deity</label>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <select id="char-deity" class="stat-input" style="flex: 1; min-width: 0;">
+                            <option value="">None</option>
+                        </select>
+                        <button type="button" id="deity-info-btn" class="btn btn-sm deity-info-btn" onclick="openDeityInfo()" title="About this Immortal (Codex Immortalis)" aria-label="About this Immortal">i</button>
+                    </div>
+                </div>
+
+                <div class="meta-group">
+                    <label>Level <span id="char-level-roman" class="level-roman" aria-hidden="true">I</span></label>
+                    <input type="number" id="char-level" class="stat-input" value="1" min="1" max="36" style="border-bottom: 1px solid var(--border-color); border-radius: 0;">
+                </div>
+                <div class="meta-group" style="min-width: 95px;">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                        <label>Hit Dice</label>
+                    </div>
+                    <input type="text" id="char-hd" class="stat-input" value="d4" readonly>
+                    <span id="header-hp-formula" style="font-size: 0.65rem; color: var(--accent-gold); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Total Hit Dice formula"></span>
+                </div>
+                <div class="meta-group">
+                    <label>Alignment</label>
+                    <select id="char-alignment" class="stat-input">
+                        <option value="Lawful">Lawful</option>
+                        <option value="Neutral" selected>Neutral</option>
+                        <option value="Chaotic">Chaotic</option>
+                    </select>
+                </div>
+            </div>
+            <!-- Game calendar and clock (js/calendar.js) -->
+            <div id="game-clock" class="game-clock" style="display: none;"></div>
+        </header>
+
+        <!-- ПАНЕЛЬ ВКЛАДОК -->
+        <div class="tabs">
+            <button type="button" class="tab-btn active" onclick="switchTab('tab-core')">Core & XP</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-combat')">Combat Stats</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-features')">Class Abilities</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-arcana')" id="btn-tab-arcana" style="display: none;">Arcana</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-skills')">General Skills</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-inventory')">Inventory</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-companions')" id="btn-tab-companions">Companions</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-holdings')" id="btn-tab-holdings">Holdings</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-dominion')">Dominion</button>
+            <button type="button" class="tab-btn" onclick="switchTab('tab-notes')" id="btn-tab-notes">Notes</button>
+        </div>
+
+        <!-- ВКЛАДКА 1: CORE & XP -->
+        <div id="tab-core" class="tab-content active-tab">
+            <div class="two-columns">
+                <!-- ХАРАКТЕРИСТИКИ -->
+                <div class="card abilities-card">
+                    <h2>Abilities</h2>
+                    <div class="ability-row">
+                        <div class="ability-info">
+                            <span class="ability-name">Strength</span>
+                            <span class="ability-desc">Melee/thrown damage, melee to-hit, opening doors.</span>
+                        </div>
+                        <div class="ability-values"><input type="number" class="stat-input ability-score" id="str-score"><input type="text" class="stat-input ability-mod" id="str-mod" readonly aria-label="STR modifier"></div>
+                    </div>
+                    <div class="ability-row">
+                        <div class="ability-info">
+                            <span class="ability-name">Intelligence</span>
+                            <span class="ability-desc">Number of languages the character can learn.</span>
+                        </div>
+                        <div class="ability-values"><input type="number" class="stat-input ability-score" id="int-score"><input type="text" class="stat-input ability-mod" id="int-mod" readonly aria-label="INT modifier"></div>
+                    </div>
+                    <div class="ability-row">
+                        <div class="ability-info">
+                            <span class="ability-name">Wisdom</span>
+                            <span class="ability-desc">Natural ability to resist magical spells.</span>
+                        </div>
+                        <div class="ability-values"><input type="number" class="stat-input ability-score" id="wis-score"><input type="text" class="stat-input ability-mod" id="wis-mod" readonly aria-label="WIS modifier"></div>
+                    </div>
+                    <div class="ability-row">
+                        <div class="ability-info">
+                            <span class="ability-name">Dexterity</span>
+                            <span class="ability-desc">Missile/thrown weapons, armor class (harder to hit).</span>
+                        </div>
+                        <div class="ability-values"><input type="number" class="stat-input ability-score" id="dex-score"><input type="text" class="stat-input ability-mod" id="dex-mod" readonly aria-label="DEX modifier"></div>
+                    </div>
+                    <div class="ability-row">
+                        <div class="ability-info">
+                            <span class="ability-name">Constitution</span>
+                            <span class="ability-desc">Hit points score and ability to survive injury.</span>
+                            <label class="ability-desc" title="Level drain removes Constitution instead of levels (Mystara Extra Rules Compendium). Recovers 1 point per week of full rest, or with Restore.">Drained: <input type="number" id="con-drain" class="stat-input" min="0" max="18" value="0" style="width: 42px; border: 1px solid var(--border-color); border-radius: 2px; padding: 0 2px; text-align: center;"></label>
+                            <span id="con-drain-note" class="ability-desc" style="color: var(--danger); display: none;"></span>
+                        </div>
+                        <div class="ability-values"><input type="number" class="stat-input ability-score" id="con-score"><input type="text" class="stat-input ability-mod" id="con-mod" readonly aria-label="CON modifier"></div>
+                    </div>
+                    <div class="ability-row">
+                        <div class="ability-info">
+                            <span class="ability-name">Charisma</span>
+                            <span class="ability-desc">NPC reactions, max retainers, retainer morale.</span>
+                        </div>
+                        <div class="ability-values"><input type="number" class="stat-input ability-score" id="cha-score"><input type="text" class="stat-input ability-mod" id="cha-mod" readonly aria-label="CHA modifier"></div>
+                    </div>
+                </div>
+
+                <!-- СПАСБРОСКИ -->
+                <div class="card saves-card">
+                    <h2>Saving Throws</h2>
+                    <div class="saves-list">
+                        <div class="save-row"><span class="save-name">Death Ray or Poison</span><input type="number" id="save-death" class="stat-input save-target"></div>
+                        <div class="save-row"><span class="save-name">Magic Wands</span><input type="number" id="save-wands" class="stat-input save-target"></div>
+                        <div class="save-row"><span class="save-name">Paralysis or Turn to Stone</span><input type="number" id="save-paralysis" class="stat-input save-target"></div>
+                        <div class="save-row"><span class="save-name">Dragon Breath</span><input type="number" id="save-breath" class="stat-input save-target"></div>
+                        <div class="save-row">
+                            <div style="display: flex; flex-direction: column;">
+                                <span class="save-name">Rod, Staff, or Spell</span>
+                                <span style="font-size: 0.75rem; color: var(--accent-gold);">Modified by Wisdom</span>
+                            </div>
+                            <input type="number" id="save-spells" class="stat-input save-target">
+                        </div>
+                    </div>
+                    <div id="save-item-note" class="sub-caption" style="display: none; margin-top: 8px;"></div>
+                </div>
+            </div>
+
+            <!-- ОПЫТ -->
+            <div class="card xp-card">
+                <h2>Experience</h2>
+                <div class="xp-calculator" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                    
+                    <div class="xp-ledger">
+                        <div class="xp-total">
+                            <input type="text" inputmode="numeric" id="char-xp" class="stat-input xp-input" value="0" aria-label="Experience Points" data-xp-field>
+                            <span class="xp-caption">experience points</span>
+                        </div>
+                        <div class="xp-bar" id="xp-bar" role="progressbar" aria-label="Progress to next level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div class="xp-bar-fill" id="xp-bar-fill"></div>
+                        </div>
+                        <div class="xp-bar-labels">
+                            <span id="xp-bar-from">Level I · 0</span>
+                            <span id="xp-bar-togo" class="xp-bar-togo">0 to go</span>
+                            <span id="xp-bar-to">Level II · 0</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border-color); padding-left: 24px; justify-content: flex-end;">
+                        <input type="text" id="calc-xp-source" class="stat-input" placeholder="Source or session (optional, for the log)" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;">
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="calc-xp-monster" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; flex: 1;" placeholder="Monster XP">
+                            <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+                                <input type="number" id="calc-xp-treasure" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%;" placeholder="Treasure XP (GP)">
+                                <button type="button" onclick="openLootModal()" style="background: color-mix(in srgb, var(--accent-gold) 15%, transparent); border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 8px 10px; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Open Coin & Loot Calculator">
+                                <span data-icon="coin" data-size="16"></span>
+                            </button>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="color: var(--text-muted); font-size: 0.85rem;">Innate Prime Bonus: <span id="prime-bonus-display" style="color: var(--accent-gold); font-weight: bold;">+0%</span></label>
+                            <label><input type="checkbox" id="bonus-map"> Map Maker (+5%)</label>
+                            <label><input type="checkbox" id="bonus-married"> Married (+5%)</label>
+                        </div>
+                        
+                        <div style="font-size: 0.85rem; color: var(--good); min-height: 1.2em;" id="xp-preview"></div>
+
+                        <button id="add-xp-btn" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 10px; border-radius: 2px; font-weight: bold; cursor: pointer; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Calculate & Add XP</button>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); min-height: 1.2em;" id="xp-message"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ОПЫТ ПОДКЛАССА -->
+            <div class="card xp-card" id="subclass-xp-card" style="display: none;">
+                <h2>Sub-Class Experience (<span id="subclass-name-badge"></span>)</h2>
+                <div class="xp-calculator" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                    
+                    <div class="xp-ledger">
+                        <div class="xp-total">
+                            <input type="text" inputmode="numeric" id="char-subxp" class="stat-input xp-input" value="0" aria-label="Sub-class experience points" data-xp-field>
+                            <span class="xp-caption">sub-class experience points</span>
+                        </div>
+                        <div class="xp-bar" id="sub-xp-bar" role="progressbar" aria-label="Progress to next level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div class="xp-bar-fill" id="sub-xp-bar-fill"></div>
+                        </div>
+                        <div class="xp-bar-labels">
+                            <span id="sub-xp-bar-from">Level I · 0</span>
+                            <span id="sub-xp-bar-togo" class="xp-bar-togo">0 to go</span>
+                            <span id="sub-xp-bar-to">Level II · 0</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border-color); padding-left: 24px; justify-content: flex-end;">
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="sub-calc-xp-monster" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;" placeholder="Monster XP">
+                            <input type="number" id="sub-calc-xp-treasure" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;" placeholder="Treasure XP">
+                        </div>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="color: var(--text-muted); font-size: 0.85rem;">Innate Prime Bonus: <span id="sub-prime-bonus-display" style="color: var(--accent-gold); font-weight: bold;">+0%</span></label>
+                            <label><input type="checkbox" id="sub-bonus-map"> Map Maker (+5%)</label>
+                            <label><input type="checkbox" id="sub-bonus-married"> Married (+5%)</label>
+                        </div>
+                        
+                        <div style="font-size: 0.85rem; color: var(--good); min-height: 1.2em;" id="sub-xp-preview"></div>
+                        
+                        <button id="sub-add-xp-btn" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 10px; border-radius: 2px; font-weight: bold; cursor: pointer; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Calculate & Add Sub-XP</button>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); min-height: 1.2em;" id="sub-xp-message"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Adventure Log: XP, treasure, level-ups and edits -->
+            <div class="card" id="chronicle-card">
+                <div class="panel-head">
+                    <h2>Adventure Log <span class="tally" style="margin-left: 6px;"><span>Entries <strong id="chronicle-count">0</strong></span></span></h2>
+                    <div class="segmented" role="group" aria-label="Show entries">
+                        <button type="button" data-chronicle-filter="all" class="on" onclick="setChronicleFilter('all')">All</button>
+                        <button type="button" data-chronicle-filter="xp" onclick="setChronicleFilter('xp')">XP</button>
+                        <button type="button" data-chronicle-filter="treasure" onclick="setChronicleFilter('treasure')">Treasure</button>
+                        <button type="button" data-chronicle-filter="level" onclick="setChronicleFilter('level')">Levels</button>
+                        <button type="button" data-chronicle-filter="realm" onclick="setChronicleFilter('realm')">Arcana &amp; realm</button>
+                        <button type="button" data-chronicle-filter="other" onclick="setChronicleFilter('other')">Notes &amp; edits</button>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <input type="text" id="chronicle-note-input" class="stat-input" placeholder="Add a note to the log (e.g. Session 12: the Black Tower)" style="flex: 1; border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;" onkeydown="if (event.key === 'Enter') addChronicleNote()">
+                    <button type="button" class="btn btn-sm" onclick="addChronicleNote()">Add note</button>
+                </div>
+                <div id="chronicle-list" class="chronicle-list"></div>
+            </div>
+
+        </div>
+
+        <!-- ВКЛАДКА 2: COMBAT STATS -->
+        <div id="tab-combat" class="tab-content">
+            <!-- VITALS & DEFENCES -->
+            <div class="card combat-card">
+                <div class="panel-head">
+                    <h2>Vitals &amp; Defences</h2>
+                    <div id="hp-status-badge" class="tag" style="font-size: 0.72rem; padding: 5px 12px; color: var(--good); border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent);">Healthy</div>
+                </div>
+
+                <div class="stat-grid">
+                    <!-- HIT POINTS -->
+                    <div class="stat-box">
+                        <span class="eyebrow">Hit Points</span>
+                        <div class="hp-values" style="justify-content: center;">
+                            <input type="number" id="hp-current" class="stat-input hp-current" style="font-size: 2.6rem; width: 72px;" value="8" aria-label="Current hit points">
+                            <span class="hp-divider">/</span>
+                            <input type="number" id="hp-max" class="stat-input hp-max" style="font-size: 1.7rem; width: 64px;" value="8" aria-label="Maximum hit points">
+                        </div>
+                        <span id="hp-formula-display" class="sub">1d8 (+Con)</span>
+                        <div class="detail">
+                            <label for="hp-temp">Temporary HP</label>
+                            <input type="number" id="hp-temp" class="stat-input small-field" style="color: var(--info);" value="0" min="0">
+                        </div>
+                    </div>
+
+                    <!-- ARMOUR CLASS -->
+                    <div class="stat-box">
+                        <span class="eyebrow" title="Descending AC: 9 is unarmoured, lower is better">Armour Class</span>
+                        <input type="number" id="combat-ac" class="stat-input big-value" style="font-size: 2.6rem; width: 100px; color: var(--accent-gold);" value="9" readonly aria-label="Armour class">
+                        <span id="ac-dex-hint" class="sub">Dex Mod: +0</span>
+                        <div class="detail" title="Armour AC before Dexterity (set from equipped armour)">
+                            <label for="ac-base">Base armour</label>
+                            <input type="number" id="ac-base" class="stat-input small-field" value="9">
+                        </div>
+                    </div>
+
+                    <!-- THAC0 & INITIATIVE -->
+                    <div class="stat-box">
+                        <span class="eyebrow">THAC0</span>
+                        <input type="number" id="combat-thac0" class="stat-input big-value" style="font-size: 2.6rem; width: 100px;" value="19" readonly aria-label="THAC0">
+                        <span class="sub">Roll needed to hit AC 0</span>
+                        <div class="detail">
+                            <span>Initiative <strong id="init-total" style="font-family: var(--font-headings); color: var(--text-main);">+0</strong></span>
+                            <span style="display: inline-flex; align-items: center; gap: 6px;"><label for="init-bonus">Bonus</label><input type="number" id="init-bonus" class="stat-input small-field" style="width: 44px;" value="0"></span>
+                        </div>
+                    </div>
+
+                    <!-- MOVEMENT -->
+                    <div class="stat-box">
+                        <span class="eyebrow">Movement</span>
+                        <div id="speed-explore" class="big">120'</div>
+                        <span class="sub"><span id="speed-encounter">40'</span> a round · <span id="speed-running">120'</span> running</span>
+                        <div class="detail">
+                            <label for="movement-load">Load</label>
+                            <select id="movement-load" class="stat-input" style="font-size: 0.9rem; width: auto; border: 1px solid var(--border-color); padding: 2px 4px; background: var(--field-bg);">
+                                <option value="120">Unencumbered (120')</option>
+                                <option value="90">Light Load (90')</option>
+                                <option value="60">Heavy Load (60')</option>
+                                <option value="30">Severe Load (30')</option>
+                                <option value="15">Overloaded (15')</option>
+                                <option value="0">Immobile (0')</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WEAPON MASTERY -->
+            <div class="card" id="weapon-feats-card">
+                <div class="panel-head">
+                    <h2>Weapon Mastery</h2>
+                    <div class="panel-head-tools">
+                        <span class="tally">Feats <span>Total <strong id="wf-total-badge">0</strong></span><span>Spent <strong id="wf-spent-badge">0</strong></span><span>Free <strong id="wf-avail-badge">0</strong></span></span>
+                        <div class="segmented" role="group" aria-label="Opponent type">
+                            <button type="button" id="target-mode-armed" class="on" onclick="setTargetOpponentMode('armed')">vs Armed</button>
+                            <button type="button" id="target-mode-unarmed" onclick="setTargetOpponentMode('unarmed')">vs Unarmed</button>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-accent" onclick="openAddWeaponModal()">+ Train Weapon</button>
+                    </div>
+                </div>
+                <div class="ledger weapon-ledger">
+                    <div class="ledger-row ledger-headings" aria-hidden="true">
+                        <span class="eyebrow">Weapon</span><span class="eyebrow">Rank</span><span class="eyebrow">To-hit</span><span class="eyebrow">THAC0</span><span class="eyebrow">Damage</span><span class="eyebrow">Special</span><span></span>
+                    </div>
+                    <div id="weapon-feats-grid" class="ledger"></div>
+                </div>
+                <div id="weapon-training-panel" style="margin-top: 14px; padding-top: 10px; border-top: 1px dotted var(--border-color);"></div>
+            </div>
+
+            <!-- MANOEUVRES -->
+            <div class="card" id="combat-manoeuvres-card">
+                <div class="panel-head">
+                    <h2>Manoeuvres</h2>
+                    <span class="eyebrow" id="combat-attacks-rate-badge">Attacks per round: 1</span>
+                </div>
+                <div id="combat-manoeuvres-list" class="note-cols">
+                    <!-- Filled by renderCombatManoeuvres() -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ВКЛАДКА 3: CLASS ABILITIES -->
+        <div id="tab-features" class="tab-content">
+            <div class="card">
+                <div class="panel-head">
+                    <h2>Class Abilities</h2>
+                    <span id="features-class-badge" class="eyebrow eyebrow-strong">Fighter</span>
+                </div>
+
+                <!-- Equipment the class may use -->
+                <div id="class-proficiencies-banner" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px dotted var(--border-color);">
+                    <div>
+                        <div class="eyebrow">Armour &amp; Shields</div>
+                        <div id="prof-armor-display" style="font-size: 1.05rem; margin-top: 2px;">Any armor, Shields allowed</div>
+                    </div>
+                    <div>
+                        <div class="eyebrow">Weapons</div>
+                        <div id="prof-weapons-display" style="font-size: 1.05rem; margin-top: 2px;">Any weapons</div>
+                    </div>
+                </div>
+
+                <div id="main-features-list" class="note-cols"></div>
+            </div>
+
+            <div class="card" id="subclass-features-card" style="display: none;">
+                <div class="panel-head">
+                    <h2>Sub-Class Abilities</h2>
+                    <span id="features-subclass-badge" class="eyebrow eyebrow-strong"></span>
+                </div>
+                <div id="sub-features-list" class="note-cols"></div>
+            </div>
+
+            <!-- TURN UNDEAD -->
+            <div class="card" id="turn-undead-section" style="display: none;">
+                <div class="panel-head">
+                    <h2>Turn Undead</h2>
+                    <span class="eyebrow">Turns as a level <strong id="turn-level-badge" style="color: var(--accent-gold);">1</strong> Cleric · roll 2d6</span>
+                </div>
+                <div id="turn-undead-grid" class="stat-tiles"></div>
+            </div>
+
+            <!-- THIEF ABILITIES -->
+            <div class="card" id="thief-skills-section" style="display: none;">
+                <div class="panel-head">
+                    <h2>Thief Abilities</h2>
+                    <span class="eyebrow">Roll d% equal or under</span>
+                </div>
+                <div id="thief-skills-grid" class="stat-tiles"></div>
+            </div>
+
+            <!-- SPELLBOOK -->
+            <div class="card" id="spellbook-section" style="display: none;"></div>
+            <div class="card" id="spellbook-section-option" style="display: none;"></div>
+        </div> <!-- ЗАКРЫТИЕ #tab-features -->
+
+        <!-- ARCANA: secret crafts, Great School, research, Radiance (GAZ3) -->
+        <div id="tab-arcana" class="tab-content">
+            <div id="arcana-root"></div>
+        </div>
+
+        <!-- DOMINION: nobility and dominion rule (RC Chapter 12) -->
+        <!-- COMPANIONS: retainers, hirelings, mercenaries, specialists, familiars, animals -->
+        <div id="tab-companions" class="tab-content">
+            <div id="companions-root"></div>
+        </div>
+
+        <!-- HOLDINGS: homes, towers, shops outside a dominion (js/holdings.js) -->
+        <div id="tab-holdings" class="tab-content">
+            <div id="holdings-root"></div>
+        </div>
+
+        <div id="tab-dominion" class="tab-content">
+            <div id="dominion-root"></div>
+        </div>
+
+        <!-- ВКЛАДКА 4: GENERAL SKILLS (СТРОГО ВНУТРИ .dashboard) -->
+        <div id="tab-skills" class="tab-content">
+            <div class="card">
+                <div class="panel-head">
+                    <h2>General Skills</h2>
+                    <div class="panel-head-tools">
+                        <span class="tally">Slots <span>Total <strong id="skills-total-badge">4</strong></span><span>Spent <strong id="skills-spent-badge">0</strong></span><span>Left <strong id="skills-avail-badge">4</strong></span><span title="Ranks granted for free (race, class, background, DM award): they use no slots">Granted <strong id="skills-granted-badge">0</strong></span></span>
+                        <button type="button" class="btn btn-sm btn-accent" onclick="openAddSkillModal()">+ Learn Skill</button>
+                    </div>
+                </div>
+                <p class="sub-caption" style="margin-bottom: 10px;">Roll d20 equal to or under the target. A natural 1 always succeeds and a 20 always fails. Each extra slot spent on a skill raises its target by 1. The DM may add circumstance modifiers. Skills granted by race, class, background or the DM use no slots: tick “Granted free” when learning, or click a skill's slot count to change how many ranks are free.</p>
+                <div class="ledger skill-ledger">
+                    <div class="ledger-row ledger-headings" aria-hidden="true">
+                        <span class="eyebrow">Skill</span><span class="eyebrow">Ability</span><span class="eyebrow">Target</span><span class="eyebrow">Slots</span><span class="eyebrow">What it does</span><span></span>
+                    </div>
+                    <div id="skills-grid" class="ledger"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ВКЛАДКА 5: INVENTORY & ENCUMBRANCE -->
+        <div id="tab-inventory" class="tab-content">
+            <!-- КУКЛА ЭКИПИРОВКИ (ДВЕ КОЛОНКИ: КУКЛА + МАГИЧЕСКИЕ ЭФФЕКТЫ) -->
+            <div class="card" style="display: flex; flex-direction: column; gap: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="border: none; padding: 0; margin: 0;">Equipped Items & Attunement</h2>
+                        <span id="paperdoll-class-warning" style="display: none; font-size: 0.75rem; color: var(--danger); border: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); padding: 2px 8px; border-radius: 2px;"></span>
+                    </div>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">Click a slot to equip, inspect, or unequip</span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start;">
+                    
+                    <!-- СЕКЦИЯ 1: ВИЗУАЛЬНЫЕ СЛОТЫ КУКЛЫ -->
+                    <div style="display: flex; flex-direction: column; align-items: center; background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 14px 10px;">
+                        <div style="display: grid; grid-template-columns: repeat(3, 96px); grid-template-rows: repeat(4, 82px); gap: 8px; justify-content: center;">
+                            
+                            <!-- Ряд 1: Шея | Голова | Плащ -->
+                        <div id="slot-neck" class="paperdoll-slot" onclick="handleSlotClick('neck')">
+                            <span class="slot-icon"><span data-icon="neck" data-size="22"></span></span>
+                            <span class="slot-label">Neck / Brooch</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-head" class="paperdoll-slot" onclick="handleSlotClick('head')">
+                            <span class="slot-icon"><span data-icon="helm" data-size="22"></span></span>
+                            <span class="slot-label">Head / Helm</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-cloak" class="paperdoll-slot" onclick="handleSlotClick('cloak')">
+                            <span class="slot-icon"><span data-icon="cloak" data-size="22"></span></span>
+                            <span class="slot-label">Cloak / Robe</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+
+                        <!-- Ряд 2: Правая рука | Доспех | Левая рука / Щит -->
+                        <div id="slot-mainHand" class="paperdoll-slot" onclick="handleSlotClick('mainHand')">
+                            <span class="slot-icon"><span data-icon="sword" data-size="22"></span></span>
+                            <span class="slot-label">Main Hand</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-armor" class="paperdoll-slot" onclick="handleSlotClick('armor')">
+                            <span class="slot-icon"><span data-icon="armor" data-size="22"></span></span>
+                            <span class="slot-label">Suit Armor</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-offHand" class="paperdoll-slot" onclick="handleSlotClick('offHand')">
+                            <span class="slot-icon"><span data-icon="shield" data-size="22"></span></span>
+                            <span class="slot-label">Shield / Off</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+
+                        <!-- Ряд 3: Левое кольцо | Пояс | Правое кольцо -->
+                        <div id="slot-ringLeft" class="paperdoll-slot" onclick="handleSlotClick('ringLeft')">
+                            <span class="slot-icon"><span data-icon="ring" data-size="22"></span></span>
+                            <span class="slot-label">Ring (Left)</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-belt" class="paperdoll-slot" onclick="handleSlotClick('belt')">
+                            <span class="slot-icon"><span data-icon="belt" data-size="22"></span></span>
+                            <span class="slot-label">Waist / Belt</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-ringRight" class="paperdoll-slot" onclick="handleSlotClick('ringRight')">
+                            <span class="slot-icon"><span data-icon="ring" data-size="22"></span></span>
+                            <span class="slot-label">Ring (Right)</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+
+                        <!-- Row 4: Hands | Boots | (empty) -->
+                        <div id="slot-hands" class="paperdoll-slot" onclick="handleSlotClick('hands')">
+                            <span class="slot-icon"><span data-icon="gauntlet" data-size="22"></span></span>
+                            <span class="slot-label">Hands / Gloves</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div id="slot-boots" class="paperdoll-slot" onclick="handleSlotClick('boots')">
+                            <span class="slot-icon"><span data-icon="boots" data-size="22"></span></span>
+                            <span class="slot-label">Boots / Feet</span>
+                            <div class="slot-content">Empty</div>
+                        </div>
+                        <div></div>
+
+                        </div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 8px; text-align: center;">Max 1 ring per hand. Heavy armor includes matching helmet.</div>
+                    </div>
+
+                    <!-- СЕКЦИЯ 2: СПИСОК МАГИЧЕСКИХ ЭФФЕКТОВ НАДЕТЫХ ПРЕДМЕТОВ -->
+                    <div style="display: flex; flex-direction: column; gap: 10px; height: 100%;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-bottom: 4px;">
+                            <div style="font-size: 0.75rem; color: var(--accent-gold); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: bold;">Active Magical Properties & Effects</div>
+                            <span id="active-magic-count" style="font-size: 0.7rem; color: var(--text-muted);">0 active</span>
+                        </div>
+                        
+                        <div id="paperdoll-effects-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 330px; overflow-y: auto; padding-right: 4px;">
+                            <!-- Динамические карточки магических эффектов -->
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- СВОДКА НАГРУЗКИ И ДВИЖЕНИЯ -->
+            <div class="card" style="display: flex; flex-direction: column; gap: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                    <h2 style="border: none; padding: 0; margin: 0;">Encumbrance & Movement</h2>
+                    <div id="encumbrance-badge" style="font-size: 0.75rem; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: bold; padding: 4px 10px; border-radius: 2px; background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); border: 1px solid var(--good);">Unencumbered (120')</div>
+                </div>
+
+                <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;">
+                        <span style="color: var(--text-muted);">Carried Weight: <strong id="inv-total-weight" style="color: var(--accent-gold);">0</strong> cn</span>
+                        <span style="color: var(--text-muted);">Max Capacity: <strong style="color: var(--text-main);">2400</strong> cn (0' move above 2400)</span>
+                    </div>
+                    <div style="background: var(--inset); border: 1px solid var(--border-color); height: 10px; border-radius: 2px; overflow: hidden;">
+                        <div id="encumbrance-bar-fill" style="width: 0%; height: 100%; background: var(--good); transition: width 0.3s, background 0.3s;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px;">
+                        <span>0–400: 120'</span>
+                        <span>401–800: 90'</span>
+                        <span>801–1200: 60'</span>
+                        <span>1201–1600: 30'</span><span>1601–2400: 15'</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- СЕКЦИЯ БОГАТСТВА: КОШЕЛЕК И ХРАНИЛИЩЕ (ДВЕ КОЛОНКИ) -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                
+                <!-- КОШЕЛЕК (ВЕСОМЫЙ) -->
+                <div class="card" style="display: flex; flex-direction: column; gap: 12px; border-color: color-mix(in srgb, var(--accent-gold) 30%, transparent);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                        <div>
+                            <strong style="color: var(--accent-gold); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 6px;"><span data-icon="pouch" data-size="18"></span> Carried Pouch</strong>
+                            <span style="font-size: 0.7rem; color: var(--text-muted); margin-left: 4px;">(weighs 1 cn/coin)</span>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" onclick="openCoinTransferModal()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Transfer specific amount"><span data-icon="swap" data-size="14"></span> Transfer</button>
+                            <button type="button" onclick="transferAllCoins('toVault')" style="background: transparent; color: var(--info); border: 1px solid var(--info); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Move all carried coins into Vault"><span data-icon="arrowRight" data-size="14"></span> All to Vault</button>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+                        <div><label style="font-size: 0.65rem; color: var(--text-muted);">CP</label><input type="number" id="coin-cp" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--text-muted);">SP</label><input type="number" id="coin-sp" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--text-muted);">EP</label><input type="number" id="coin-ep" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--accent-gold); font-weight: bold;">GP</label><input type="number" id="coin-gp" class="stat-input" value="0" min="0" style="border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--info);">PP</label><input type="number" id="coin-pp" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); color: var(--info); padding: 4px; border-radius: 2px;"></div>
+                    </div>
+
+                    <div style="border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">Carried Gems & Valuables:</div>
+                        <div id="pouch-gems-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <!-- ДОМАШНЕЕ ХРАНИЛИЩЕ / СЕЙФ (ВЕС 0 cn) -->
+                <div class="card" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                        <div>
+                            <strong style="color: var(--text-main); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 6px;"><span data-icon="vault" data-size="18"></span> Vault / Stronghold</strong>
+                            <span style="font-size: 0.7rem; color: var(--good); margin-left: 4px;">(0 cn weight)</span>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" onclick="openCoinTransferModal()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Transfer specific amount"><span data-icon="swap" data-size="14"></span> Transfer</button>
+                            <button type="button" onclick="transferAllCoins('toPouch')" style="background: transparent; color: var(--good); border: 1px solid var(--good); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Withdraw all coins into Pouch"><span data-icon="arrowLeft" data-size="14"></span> All to Pouch</button>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+                        <div><label style="font-size: 0.65rem; color: var(--text-muted);">CP</label><input type="number" id="vault-cp" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--text-muted);">SP</label><input type="number" id="vault-sp" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--text-muted);">EP</label><input type="number" id="vault-ep" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--accent-gold); font-weight: bold;">GP</label><input type="number" id="vault-gp" class="stat-input" value="0" min="0" style="border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 4px; border-radius: 2px;"></div>
+                        <div><label style="font-size: 0.65rem; color: var(--info);">PP</label><input type="number" id="vault-pp" class="stat-input" value="0" min="0" style="border: 1px solid var(--border-color); color: var(--info); padding: 4px; border-radius: 2px;"></div>
+                    </div>
+
+                    <div style="border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">Stored Gems & Art:</div>
+                        <div id="vault-gems-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- СЕКЦИЯ BAGS OF HOLDING -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="border: none; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px;"><span data-icon="bag" data-size="20"></span> Bags of Holding</h2>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Holds up to 10,000 cn; weighs 600 cn full / 60 cn empty)</span>
+                    </div>
+                    <button type="button" onclick="addNewBagOfHolding()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">+ Add Bag of Holding</button>
+                </div>
+                <div id="bags-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;">
+                    <!-- Динамические карточки сумок -->
+                </div>
+            </div>
+
+            <!-- СЕКЦИЯ MOUNTS & TRANSPORT -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="border: none; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px;">
+                            <span data-icon="horse" data-size="20"></span>
+                            Mounts & Beasts of Burden
+                        </h2>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Carries party gear & coins; 0 cn on PC)</span>
+                    </div>
+                    <button type="button" onclick="openAddMountModal()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">+ Add Mount / Cart</button>
+                </div>
+                <div id="mounts-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;">
+                    <!-- Динамические карточки животных -->
+                </div>
+            </div>
+
+            <div class="inv-toolbar" role="group" aria-label="Sort and filter items">
+                <label class="inv-tool">Sort
+                    <select id="inv-sort" class="stat-input" onchange="setInventorySort(this.value)">
+                        <option value="added">Order added</option>
+                        <option value="name">Name (A–Z)</option>
+                        <option value="weight">Weight (heaviest first)</option>
+                        <option value="value">Value (highest first)</option>
+                        <option value="location">Where it is carried</option>
+                        <option value="trade">For trade first</option>
+                    </select>
+                </label>
+                <label class="inv-tool inv-tool-check"><input type="checkbox" id="inv-trade-only" onchange="setInventoryTradeOnly(this.checked)"> Show only items for trade</label>
+                <span id="inv-trade-summary" class="inv-trade-summary"></span>
+            </div>
+
+            <!-- СЕКЦИЯ 1: ОРУЖИЕ И БОЕПРИПАСЫ -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="border: none; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px;">
+                            <span data-icon="sword" data-size="18"></span>
+                            Weapons & Ammunition
+                        </h2>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Carried weapons, quivers & missiles)</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" onclick="openCatalogue('weapons')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Catalogue</button>
+                        <button type="button" onclick="openAddItemModal('weapon')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">+ Add Weapon / Ammo</button>
+                    </div>
+                </div>
+                <div id="weapons-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Динамический список оружия и боеприпасов -->
+                </div>
+            </div>
+
+            <!-- СЕКЦИЯ 2: ОБЩЕЕ СНАРЯЖЕНИЕ И РАСХОДНИКИ -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="border: none; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px;">
+                            <span data-icon="bag" data-size="18"></span>
+                            Adventuring Gear & Equipment
+                        </h2>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Tools, packs, rations & torches)</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" onclick="openCatalogue('gear')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Catalogue</button>
+                        <button type="button" onclick="openAddItemModal('equipment')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">+ Add Gear</button>
+                    </div>
+                </div>
+                <div id="equipment-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Динамический список снаряжения -->
+                </div>
+            </div>
+
+            <!-- MAGIC ITEMS: potions, scrolls, wands, rings and the rest (Rules Cyclopedia) -->
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="border: none; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px;">
+                            <span data-icon="flask" data-size="18"></span>
+                            Magic Items
+                        </h2>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(<span id="magic-items-count">0</span> carried · potions, scrolls, wands, rings, wondrous items)</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" onclick="openCatalogue('magic')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Catalogue</button>
+                        <button type="button" onclick="openCatalogue('forge')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Magic forge</button>
+                    </div>
+                </div>
+                <div id="magic-items-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+            </div>
+        </div>
+        
+            <!-- ВКЛАДКА: NOTES -->
+        <div id="tab-notes" class="tab-content" style="max-width: 1200px; width: 100%; margin: 0 auto; box-sizing: border-box;">
+            <!-- Search across the journal, contacts, factions, biography and adventure log -->
+            <div class="card notes-search-card">
+                <div class="notes-search-bar">
+                    <span class="notes-search-icon" data-icon="eye" data-size="16"></span>
+                    <input type="search" id="notes-search" class="stat-input arc-input" placeholder="Search journal, contacts, factions, biography and the adventure log..." autocomplete="off" oninput="renderNotesSearch()" onkeydown="if (event.key === 'Escape') { this.value = ''; renderNotesSearch(); }">
+                </div>
+                <div id="notes-search-results" class="notes-search-results" style="display: none;"></div>
+            </div>
+
+            <div class="notes-grid">
+                <div class="notes-col">
+                    <!-- CHARACTER INFO -->
+                    <div class="card" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                            <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">CHARACTER INFO</h2>
+                            <span class="sub-caption">Appearance, portrait, heraldry, traits &amp; background</span>
+                        </div>
+                        <div id="bio-title-line" class="bio-title-line" style="display: none;"></div>
+
+                        <div style="display: flex; gap: 16px; align-items: stretch;">
+                            <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0;">
+                                <div id="portrait-frame" onclick="triggerPortraitUpload()" style="width: 120px; height: 146px; border: 1px dashed var(--border-color); border-radius: 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; overflow: hidden; position: relative; background: var(--inset); transition: all 0.2s;" title="Click to upload portrait">
+                                    <img id="portrait-img" src="" alt="Portrait" style="display: none; width: 100%; height: 100%; object-fit: cover;">
+                                    <div id="portrait-placeholder" style="display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--text-muted); padding: 8px; text-align: center;">
+                                        <span data-icon="portrait" data-size="28"></span>
+                                        <span style="font-size: 0.65rem; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;">Upload Portrait</span>
+                                    </div>
+                                </div>
+                                <button type="button" id="portrait-remove-btn" onclick="removePortrait()" style="display: none; background: transparent; border: none; color: var(--danger); font-size: 0.7rem; cursor: pointer; padding: 2px 6px;">Remove Image</button>
+                                <input type="file" id="portrait-file-input" accept="image/*" style="display: none;" onchange="handlePortraitFile(event)">
+
+                                <div id="heraldry-frame" class="heraldry-frame" onclick="triggerHeraldryUpload()" title="Click to upload a coat of arms, holy symbol or personal sigil">
+                                    <img id="heraldry-img" src="" alt="Heraldry" style="display: none;">
+                                    <div id="heraldry-placeholder" class="heraldry-placeholder">
+                                        <span data-icon="shield" data-size="22"></span>
+                                        <span>Heraldry</span>
+                                    </div>
+                                </div>
+                                <button type="button" id="heraldry-remove-btn" onclick="removeHeraldry()" style="display: none; background: transparent; border: none; color: var(--danger); font-size: 0.7rem; cursor: pointer; padding: 2px 6px;">Remove Arms</button>
+                                <input type="file" id="heraldry-file-input" accept="image/*" style="display: none;" onchange="handleHeraldryFile(event)">
+                            </div>
+
+                            <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0;">
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                                    <div>
+                                        <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Age:</label>
+                                        <input type="text" id="bio-age" class="stat-input" placeholder="25" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Gender:</label>
+                                        <input type="text" id="bio-gender" class="stat-input" placeholder="M / F" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Height:</label>
+                                        <input type="text" id="bio-height" class="stat-input" placeholder="5'10&quot;" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Weight:</label>
+                                        <input type="text" id="bio-weight" class="stat-input" placeholder="170 lbs" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%;">
+                                    </div>
+                                </div>
+
+                                <div class="bio-birthday">
+                                    <label for="bio-bday-day" style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Birthday:</label>
+                                    <div class="bio-bday-row">
+                                        <select id="bio-bday-day" class="stat-input" aria-label="Day of birth"><option value="">Day</option></select>
+                                        <select id="bio-bday-month" class="stat-input" aria-label="Month of birth"><option value="">Month</option></select>
+                                        <input type="number" id="bio-bday-year" class="stat-input" placeholder="Year AC (optional)" aria-label="Year of birth (AC)">
+                                        <button type="button" id="bio-bday-clear" class="icon-btn" onclick="clearBirthday()" title="Clear the birthday" aria-label="Clear the birthday" style="display: none;"></button>
+                                    </div>
+                                    <div id="bio-bday-hint" class="sub-caption" style="margin-top: 3px;"></div>
+                                    <div id="bio-zodiac" class="bio-zodiac" style="display: none;" title="The Mystaran Zodiac (Kit Navarro, Arcana Mystara, Vaults of Pandius)"></div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <div>
+                                        <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Homeland / Origin:</label>
+                                        <input type="text" id="bio-homeland" class="stat-input" placeholder="e.g. Karameikos, Glantri" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Deity / Philosophy:</label>
+                                        <input type="text" id="bio-deity" class="stat-input" placeholder="e.g. Asterius" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%;">
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Languages Known:</label>
+                                    <input type="text" id="bio-languages" class="stat-input" placeholder="Common, Alignment, Elvish..." style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%;">
+                                    <div id="bio-languages-hint" class="sub-caption" style="margin-top: 3px;"></div>
+                                </div>
+
+                                <div style="flex: 1; display: flex; flex-direction: column;">
+                                    <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Family &amp; Relations:</label>
+                                    <textarea id="bio-family" class="stat-input" placeholder="Parents, siblings, spouse, children, heirs, sworn kin..." style="flex: 1; border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; min-height: 60px; resize: vertical; font-size: 0.8rem; line-height: 1.4;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Visual Appearance &amp; Distinctive Marks:</label>
+                            <textarea id="bio-appearance" class="stat-input" placeholder="Hair, eyes, scars, attire, crest..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; min-height: 65px; resize: vertical; font-size: 0.8rem; line-height: 1.4;"></textarea>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Personality Traits, Beliefs &amp; Quirks:</label>
+                            <textarea id="bio-personality" class="stat-input" placeholder="Ideals, flaws, habits..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; min-height: 65px; resize: vertical; font-size: 0.8rem; line-height: 1.4;"></textarea>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Background &amp; Backstory:</label>
+                            <textarea id="bio-backstory" class="stat-input" placeholder="Lineage, former profession, adventurer's call..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; min-height: 85px; resize: vertical; font-size: 0.8rem; line-height: 1.4;"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- FACTIONS & STANDING -->
+                    <div class="card" id="notes-factions-card">
+                        <div class="arc-row-head" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                            <div>
+                                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">FACTIONS &amp; STANDING</h2>
+                                <span class="sub-caption">Houses, orders, temples and guilds, and how they regard you</span>
+                            </div>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <select id="faction-preset" class="stat-input arc-input" style="width: auto; max-width: 190px;" onchange="addFactionPreset(this.value); this.value = '';" aria-label="Add a faction"></select>
+                                <button type="button" class="btn btn-sm btn-accent" onclick="openFactionEditor()" title="Add a faction with any name">+ New Faction</button>
+                            </div>
+                        </div>
+                        <div id="factions-list" class="nf-list"></div>
+                    </div>
+                </div>
+
+                <div class="notes-col">
+                    <!-- JOURNAL -->
+                    <div class="card" id="notes-journal-card">
+                        <div class="arc-row-head" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                            <div>
+                                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">JOURNAL</h2>
+                                <span class="sub-caption">Session notes, with what each session earned from the adventure log</span>
+                            </div>
+                            <div style="display: flex; gap: 6px;">
+                                <button type="button" class="btn btn-sm" onclick="exportJournalDiary()" title="Save the whole journal as a page you can open and print">Export</button>
+                                <button type="button" class="btn btn-sm btn-accent" onclick="openJournalModal()">+ New Entry</button>
+                            </div>
+                        </div>
+                        <div id="journal-entries-container" class="nj-list"></div>
+                    </div>
+
+                    <!-- CONTACTS -->
+                    <div class="card" id="notes-contacts-card">
+                        <div class="arc-row-head" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                            <div>
+                                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">CONTACTS</h2>
+                                <span class="sub-caption">Allies, patrons, rivals and everyone else worth remembering</span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-accent" onclick="openContactEditor()">+ Contact</button>
+                        </div>
+                        <div class="segmented" role="group" aria-label="Show contacts" id="contact-filters" style="margin: 10px 0 6px;">
+                            <button type="button" data-contact-filter="all" class="on" onclick="setContactFilter('all')">All</button>
+                            <button type="button" data-contact-filter="friends" onclick="setContactFilter('friends')">Allies</button>
+                            <button type="button" data-contact-filter="neutral" onclick="setContactFilter('neutral')">Neutral</button>
+                            <button type="button" data-contact-filter="enemies" onclick="setContactFilter('enemies')">Enemies</button>
+                            <button type="button" data-contact-filter="gone" onclick="setContactFilter('gone')">Dead &amp; missing</button>
+                        </div>
+                        <div id="contacts-list" class="nc-list"></div>
+                        <div id="contacts-linked" class="nc-linked"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div> <!-- ЕДИНСТВЕННОЕ ЗАКРЫТИЕ .dashboard ПЕРЕД МОДАЛКАМИ -->
+        
+
+
+    <!-- МОДАЛЬНОЕ ОКНО ДЛЯ СОЗДАНИЯ ЗАКЛИНАНИЯ -->
+    <div id="custom-spell-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 400px; display: flex; flex-direction: column; gap: 16px;">
+            <h2 style="margin-bottom: 0;">Create Custom Spell</h2>
+            <input type="text" id="new-spell-name" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Spell Name">
+            <div style="display: flex; gap: 12px; align-items: center;">
+            <label style="color: var(--text-muted); font-size: 0.85rem;">Spell Tier:</label>
+            <input type="number" id="new-spell-level" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; width: 80px;" min="1" max="9" value="1">
+        </div>
+        <input type="text" id="new-spell-range" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Range (e.g., 10', 120', Touch)">
+        <input type="text" id="new-spell-duration" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Duration (e.g., 2d6 turns, Instantaneous)">
+        <input type="text" id="new-spell-effect" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Effect (e.g., One door, gate, or portal)">
+        <textarea id="new-spell-desc" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left; resize: vertical; min-height: 80px;" placeholder="Spell Description..."></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button onclick="closeSpellModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
+                <button onclick="saveCustomSpell()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Save Spell</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО КОМПЕНДИУМА -->
+    <div id="compendium-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 420px; display: flex; flex-direction: column; gap: 16px;">
+            <h2 style="margin-bottom: 0;">Add from Compendium</h2>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label style="color: var(--text-muted); font-size: 0.85rem;">Select Arcane Spell:</label>
+                <select id="compendium-select" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%;">
+                </select>
+            </div>
+            <div id="compendium-preview" style="color: var(--text-muted); font-size: 0.8rem; line-height: 1.4; border-left: 2px solid var(--accent-gold-dim); padding-left: 8px; min-height: 48px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button onclick="closeCompendiumModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
+                <button onclick="addSpellFromCompendium()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Add to Spellbook</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО КАЛЬКУЛЯТОРА СОКРОВИЩ -->
+    <div id="loot-calc-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 440px; display: flex; flex-direction: column; gap: 16px;">
+            <h2 style="margin-bottom: 0;">Treasure & Coin Calculator</h2>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: -8px;">Converts all denominations to Gold Piece Value (1 GP = 1 XP).</div>
+            
+            <!-- Сетка монет -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Copper (100 CP = 1 GP)</label>
+                    <input type="number" id="loot-cp" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;" placeholder="0" min="0">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Silver (10 SP = 1 GP)</label>
+                    <input type="number" id="loot-sp" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;" placeholder="0" min="0">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Electrum (2 EP = 1 GP)</label>
+                    <input type="number" id="loot-ep" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;" placeholder="0" min="0">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Gold Pieces (GP)</label>
+                    <input type="number" id="loot-gp" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;" placeholder="0" min="0">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Platinum (1 PP = 5 GP)</label>
+                    <input type="number" id="loot-pp" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;" placeholder="0" min="0">
+                </div>
+            </div>
+
+            <!-- Секция для драгоценностей и предметов искусства -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="font-size: 0.8rem; color: var(--accent-gold); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;">Personal Claimed Gems & Art (Not split)</label>
+                    <button type="button" onclick="addLootItemRow()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 2px 8px; font-size: 0.75rem; cursor: pointer;">+ Add Item</button>
+                </div>
+                <div id="loot-items-container" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; padding-right: 4px;">
+                    <!-- Динамические строки предметов будут добавляться сюда -->
+                </div>
+            </div>
+
+            <!-- Дележ монет на партию -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <label style="font-size: 0.85rem; color: var(--text-muted);">Number of Adventurers (Coin Split):</label>
+                <input type="number" id="loot-party-pcs" class="stat-input" style="border: 1px solid var(--border-color); padding: 4px 8px; width: 70px; border-radius: 2px; text-align: center;" value="4" min="1">
+            </div>
+
+            <!-- Итог: Доля монет + Неделимый остаток монет + Полный личный XP -->
+            <div style="background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center;">
+                <div style="border-right: 1px solid var(--border-color); padding-right: 6px;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Coin Share (Each)</div>
+                    <div id="loot-calc-coin-share" style="font-family: var(--font-headings); font-size: 1.3rem; color: var(--text-main); font-weight: bold;">0 GP</div>
+                </div>
+                <div style="border-right: 1px solid var(--border-color); padding-right: 6px;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Coin Remainder</div>
+                    <div id="loot-calc-remainder" style="font-family: var(--font-headings); font-size: 1.3rem; color: var(--text-muted); font-weight: bold;">0 GP</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.7rem; color: var(--accent-gold); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: bold;">Your Total XP</div>
+                    <div id="loot-calc-total" style="font-family: var(--font-headings); font-size: 1.3rem; color: var(--accent-gold); font-weight: bold;">0 GP</div>
+                </div>
+            </div>
+
+            <!-- Кнопки управления -->
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px;">
+                <button type="button" id="loot-copy-btn" onclick="copyLootSummary()" style="background: transparent; color: var(--info); border: 1px solid var(--info); padding: 8px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                    <span data-icon="copy" data-size="18"></span>
+                    <span>Copy for Party</span>
+                </button>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" onclick="closeLootModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 14px; border-radius: 2px; cursor: pointer;">Cancel</button>
+                    <button type="button" onclick="applyLootCalculation()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 14px; border-radius: 2px; cursor: pointer; font-weight: bold;">Apply to Sheet</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ПРЕДМЕТА -->
+    <div id="item-modal" onclick="handleItemModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 380px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 id="item-modal-title" style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Add Inventory Item</h2>
+                <button type="button" onclick="closeAddItemModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Item Name:</label>
+                <input type="text" id="item-name-input" class="stat-input" placeholder="e.g. Wand of Paralyzation, Ring of Protection" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Quantity:</label>
+                    <input type="number" id="item-qty-input" class="stat-input" value="1" min="1" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px;">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Weight (cn each):</label>
+                    <input type="number" id="item-weight-input" class="stat-input" value="10" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px;">
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Category:</label>
+                    <select id="item-category-select" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                        <option value="equipment" selected>General Equipment</option>
+                        <option value="weapon">Weapon</option>
+                        <option value="ammo">Ammunition (Arrows / Bolts)</option>
+                        <option value="consumable">Consumable (Rations / Torches)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Location / Container:</label>
+                    <select id="item-location-input" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                    </select>
+                </div>
+            </div>
+
+            <!-- МАГИЧЕСКИЕ НАСТРОЙКИ -->
+            <div style="border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div>
+                        <label style="font-size: 0.7rem; color: var(--accent-gold); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: bold;">Magic Bonus:</label>
+                        <select id="item-magic-bonus" class="stat-input" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                            <option value="0">0 (Mundane)</option>
+                            <option value="1">+1 Enchantment</option>
+                            <option value="2">+2 Enchantment</option>
+                            <option value="3">+3 Enchantment</option>
+                            <option value="4">+4 Enchantment</option>
+                            <option value="5">+5 Enchantment</option>
+                            <option value="-1">-1 (Cursed)</option>
+                            <option value="-2">-2 (Cursed)</option>
+                            <option value="-3">-3 (Cursed)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Charges (optional):</label>
+                        <input type="number" id="item-charges-input" class="stat-input" placeholder="e.g. 20" min="0" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%; margin-top: 2px;">
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="font-size: 0.75rem; color: var(--danger); display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="item-is-cursed"> <span data-icon="skull" data-size="14"></span> Cursed Item
+                    </label>
+                    <label style="font-size: 0.75rem; color: var(--info); display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="item-requires-concentration"> <span data-icon="eye" data-size="14"></span> Requires Concentration
+                    </label>
+                </div>
+
+                <!-- Worn slot and ability-score effects (e.g. Strength 18 while worn, +1 Dexterity) -->
+                <div class="item-effects">
+                    <div class="item-effects-row">
+                        <label class="arc-field" style="flex: 1 1 140px;"><span class="eyebrow">Worn on</span>
+                            <select id="item-slot-input" class="stat-input arc-input">
+                                <option value="">Not worn</option><option value="head">Head</option><option value="neck">Neck</option><option value="cloak">Cloak / robe</option>
+                                <option value="ring">Ring (finger)</option><option value="belt">Belt / waist</option><option value="hands">Hands / gloves / bracers</option><option value="boots">Feet / boots</option>
+                            </select></label>
+                        <label class="item-effects-check" title="For things that work without being equipped, such as an ioun stone"><input type="checkbox" id="item-active-carried"> Works while carried</label>
+                    </div>
+                    <div class="eyebrow eyebrow-strong" style="margin-top: 6px;">Ability score effects</div>
+                    <div id="item-ability-effects" class="item-ability-effects"></div>
+                    <button type="button" class="btn btn-sm" onclick="addItemAbilityEffectRow()">+ Ability effect</button>
+                    <div class="sub-caption">Effects apply while the item is worn (equipped on the paperdoll), or always if “works while carried” is ticked.</div>
+                </div>
+
+                <div>
+                    <label style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Magic Effect / Description:</label>
+                    <textarea id="item-desc-input" class="stat-input" placeholder="Rules text or special powers..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; min-height: 48px; resize: vertical; margin-top: 2px; font-size: 0.75rem;"></textarea>
+                </div>
+            </div>
+
+            <div id="item-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeAddItemModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" id="item-modal-save" onclick="saveInventoryItem()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Add Item</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ / ТРЕНИРОВКИ ОРУЖИЯ -->
+    <div id="weapon-modal" onclick="handleWeaponModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 400px; display: flex; flex-direction: column; gap: 14px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0;">Train Weapon Feat</h2>
+                <button type="button" onclick="closeAddWeaponModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Select Weapon:</label>
+                    <label style="font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="weapon-ignore-class-filter" onchange="populateWeaponSelectOptions()"> Show all
+                    </label>
+                </div>
+                <select id="weapon-select" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%;">
+                </select>
+            </div>
+
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Proficiency Level:</label>
+                <select id="weapon-rank-select" class="stat-input" onchange="updateWeaponCostPreview()" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%; margin-top: 4px;">
+                </select>
+                <div id="weapon-cost-preview" style="font-size: 0.75rem; color: var(--accent-gold); margin-top: 6px;">Feat Cost: 1 slot(s)</div>
+            </div>
+
+            <div id="weapon-modal-hint" class="sub-caption" style="margin: 0;"></div>
+            <!-- Предупреждение об ошибке валидации -->
+            <div id="weapon-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 8px; border-radius: 2px; font-size: 0.8rem; line-height: 1.3;"></div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
+                <button type="button" onclick="closeAddWeaponModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
+                <button type="button" id="weapon-modal-train" class="btn btn-sm btn-accent" onclick="saveCharacterWeapon(false)" style="display: none;">Begin Training</button>
+                <button type="button" id="weapon-modal-save" onclick="saveCharacterWeapon(true)" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Train Feat</button>
+            </div>
+        </div>
+    </div>
+
+<!-- МОДАЛЬНОЕ ОКНО ИЗУЧЕНИЯ НАВЫКА (КОМПАКТНОЕ + ХОУМБРЮ) -->
+    <div id="skill-modal" onclick="handleSkillModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 360px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Learn General Skill</h2>
+                <button type="button" onclick="closeAddSkillModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+
+            <!-- Переключатель: Базовый список / Хоумбрю -->
+            <div style="display: flex; background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 2px;">
+                <button type="button" id="skill-tab-standard" onclick="setSkillModalMode('standard')" style="flex: 1; background: var(--accent-gold); color: var(--on-accent); border: none; padding: 4px 8px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">From the books</button>
+                <button type="button" id="skill-tab-custom" onclick="setSkillModalMode('custom')" style="flex: 1; background: transparent; color: var(--text-muted); border: none; padding: 4px 8px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">+ Homebrew</button>
+            </div>
+
+            <!-- Поля для стандартного навыка -->
+            <div id="skill-mode-standard-fields" style="display: flex; flex-direction: column; gap: 10px;">
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Select Skill:</label>
+                    <select id="skill-select" class="stat-input" onchange="onSkillSelectionChange()" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                    </select>
+                </div>
+                <div id="skill-spec-group" style="display: none;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;" id="skill-spec-label">Specialization:</label>
+                    <input type="text" id="skill-spec-input" class="stat-input" placeholder="e.g. Painting, Forest, Elven" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                </div>
+                <div id="skill-info-preview" style="background: var(--inset); border-left: 2px solid var(--accent-gold); padding: 6px 8px; font-size: 0.75rem; color: var(--text-muted); line-height: 1.35; max-height: 120px; overflow-y: auto;">
+                </div>
+            </div>
+
+            <!-- Поля для хоумбрю навыка -->
+            <div id="skill-mode-custom-fields" style="display: none; flex-direction: column; gap: 10px;">
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Skill Name:</label>
+                    <input type="text" id="custom-skill-name" class="stat-input" placeholder="e.g. Herbalism, Sailing" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Key Ability:</label>
+                    <select id="custom-skill-ability" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                        <option value="strength">Strength (STR)</option>
+                        <option value="dexterity">Dexterity (DEX)</option>
+                        <option value="constitution">Constitution (CON)</option>
+                        <option value="intelligence" selected>Intelligence (INT)</option>
+                        <option value="wisdom">Wisdom (WIS)</option>
+                        <option value="charisma">Charisma (CHA)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Short Description (optional):</label>
+                    <input type="text" id="custom-skill-desc" class="stat-input" placeholder="Brief effect or rule note" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                </div>
+            </div>
+
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem;"><input type="checkbox" id="skill-granted-free" onchange="document.getElementById('skill-granted-source').style.display = this.checked ? '' : 'none'"> Granted free (does not use a skill slot)</label>
+            <input type="text" id="skill-granted-source" class="stat-input" placeholder="Granted by: race, class, background, DM award..." maxlength="60" style="display: none; border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%;">
+
+            <div id="skill-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeAddSkillModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" onclick="saveCharacterSkill()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Learn Skill</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ЧАСТИЧНОГО ПЕРЕВОДА МОНЕТ -->
+    <div id="coin-transfer-modal" onclick="handleCoinTransferModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 360px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Transfer Currency</h2>
+                <button type="button" onclick="closeCoinTransferModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+
+            <!-- Направление перевода -->
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Direction:</label>
+                <div style="display: flex; background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 2px; margin-top: 2px;">
+                    <button type="button" id="transfer-dir-deposit" onclick="setTransferDirection('deposit')" style="flex: 1; background: var(--accent-gold); color: var(--on-accent); border: none; padding: 5px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">Pouch <span data-icon="arrowRight" data-size="14"></span> Vault</button>
+                    <button type="button" id="transfer-dir-withdraw" onclick="setTransferDirection('withdraw')" style="flex: 1; background: transparent; color: var(--text-muted); border: none; padding: 5px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">Vault <span data-icon="arrowRight" data-size="14"></span> Pouch</button>
+                </div>
+            </div>
+
+            <!-- Выбор монеты -->
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Denomination:</label>
+                    <span id="transfer-source-balance" style="font-size: 0.75rem; color: var(--accent-gold);">Available: 0</span>
+                </div>
+                <select id="transfer-coin-select" class="stat-input" onchange="updateTransferBalancePreview()" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                    <option value="gp" selected>Gold Pieces (GP)</option>
+                    <option value="sp">Silver Pieces (SP)</option>
+                    <option value="cp">Copper Pieces (CP)</option>
+                    <option value="ep">Electrum Pieces (EP)</option>
+                    <option value="pp">Platinum Pieces (PP)</option>
+                </select>
+            </div>
+
+            <!-- Количество и пресеты -->
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Amount:</label>
+                <input type="number" id="transfer-amount-input" class="stat-input" value="10" min="1" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px; text-align: left;">
+                <div style="display: flex; gap: 4px; margin-top: 6px;">
+                    <button type="button" onclick="setTransferAmountPreset(10)" style="flex: 1; background: color-mix(in srgb, var(--text-main) 5%, transparent); border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 2px; padding: 2px 4px; font-size: 0.7rem; cursor: pointer;">+10</button>
+                    <button type="button" onclick="setTransferAmountPreset(50)" style="flex: 1; background: color-mix(in srgb, var(--text-main) 5%, transparent); border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 2px; padding: 2px 4px; font-size: 0.7rem; cursor: pointer;">+50</button>
+                    <button type="button" onclick="setTransferAmountPreset(100)" style="flex: 1; background: color-mix(in srgb, var(--text-main) 5%, transparent); border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 2px; padding: 2px 4px; font-size: 0.7rem; cursor: pointer;">+100</button>
+                    <button type="button" onclick="setTransferMaxAmount()" style="flex: 1; background: color-mix(in srgb, var(--accent-gold) 15%, transparent); border: 1px solid var(--accent-gold); color: var(--accent-gold); border-radius: 2px; padding: 2px 4px; font-size: 0.7rem; font-weight: bold; cursor: pointer;">Max</button>
+                </div>
+            </div>
+
+            <div id="transfer-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeCoinTransferModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" onclick="executeCoinTransfer()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Transfer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ПЕРЕНОСА ДРАГОЦЕННОСТЕЙ -->
+    <div id="valuable-transfer-modal" onclick="handleValuableTransferModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 340px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.05rem;" id="valuable-transfer-title">Transfer Valuables</h2>
+                <button type="button" onclick="closeValuableTransferModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+
+            <div style="background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 8px 10px;">
+                <div id="valuable-transfer-item-name" style="color: var(--accent-gold); font-weight: bold; font-size: 0.9rem;">Diamond</div>
+                <div id="valuable-transfer-direction-text" style="color: var(--text-muted); font-size: 0.75rem; margin-top: 2px;">Moving from Pouch to Vault</div>
+            </div>
+
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Quantity to Move:</label>
+                    <span id="valuable-transfer-avail-badge" style="font-size: 0.75rem; color: var(--accent-gold);">Available: 1</span>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 4px;">
+                    <input type="number" id="valuable-transfer-qty-input" class="stat-input" value="1" min="1" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; flex: 1; text-align: left;">
+                    <button type="button" onclick="setValuableTransferMax()" style="background: color-mix(in srgb, var(--accent-gold) 15%, transparent); border: 1px solid var(--accent-gold); color: var(--accent-gold); border-radius: 2px; padding: 0 12px; font-size: 0.75rem; font-weight: bold; cursor: pointer;">Max</button>
+                </div>
+            </div>
+
+            <div id="valuable-transfer-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeValuableTransferModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" onclick="executeValuableTransfer()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Transfer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ПЕРЕВОДА МОНЕТ В BAG OF HOLDING -->
+    <div id="bag-coin-modal" onclick="handleBagCoinModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 340px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.05rem;" id="bag-coin-title">Bag of Holding Coins</h2>
+                <button type="button" onclick="closeBagCoinModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Action:</label>
+                <div style="display: flex; background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 2px; margin-top: 2px;">
+                    <button type="button" id="bag-dir-in" onclick="setBagCoinDirection('in')" style="flex: 1; background: var(--accent-gold); color: var(--on-accent); border: none; padding: 4px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">Pouch <span data-icon="arrowRight" data-size="14"></span> Bag</button>
+                    <button type="button" id="bag-dir-out" onclick="setBagCoinDirection('out')" style="flex: 1; background: transparent; color: var(--text-muted); border: none; padding: 4px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">Bag <span data-icon="arrowRight" data-size="14"></span> Pouch</button>
+                </div>
+            </div>
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Coin Type:</label>
+                    <span id="bag-coin-available" style="font-size: 0.75rem; color: var(--accent-gold);">Available: 0</span>
+                </div>
+                <select id="bag-coin-select" class="stat-input" onchange="updateBagCoinPreview()" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                    <option value="gp" selected>Gold Pieces (GP)</option>
+                    <option value="pp">Platinum Pieces (PP)</option>
+                    <option value="sp">Silver Pieces (SP)</option>
+                    <option value="ep">Electrum Pieces (EP)</option>
+                    <option value="cp">Copper Pieces (CP)</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Amount:</label>
+                <input type="number" id="bag-coin-amount" class="stat-input" value="100" min="1" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px; text-align: left;">
+            </div>
+            <div id="bag-coin-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeBagCoinModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" onclick="executeBagCoinTransfer()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Transfer</button>
+            </div>
+        </div>
+    </div>  
+
+    <!-- МОДАЛЬНОЕ ОКНО ЭКИПИРОВКИ СЛОТА -->
+    <div id="paperdoll-modal" onclick="handlePaperdollModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 380px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;" id="paperdoll-modal-title">Equip Slot</h2>
+                <button type="button" onclick="closePaperdollModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+
+            <div id="paperdoll-modal-warning" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px 8px; border-radius: 2px; font-size: 0.75rem; line-height: 1.3;"></div>
+
+            <div id="paperdoll-options-container" style="display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto;">
+                <!-- Варианты экипировки -->
+            </div>
+
+            <!-- Ручной ввод предмета в #paperdoll-modal -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Or Enter Custom Item:</div>
+            <input type="text" id="custom-slot-name" class="stat-input" placeholder="Item Name (e.g. Ring of Fire Resistance)" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <input type="number" id="custom-slot-weight" class="stat-input" placeholder="Weight (cn)" value="10" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+                <select id="custom-slot-magic" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+                    <option value="0">0 (Mundane)</option>
+                    <option value="1">+1 Enchantment</option>
+                    <option value="2">+2 Enchantment</option>
+                    <option value="3">+3 Enchantment</option>
+                    <option value="4">+4 Enchantment</option>
+                    <option value="5">+5 Enchantment</option>
+                    <option value="-1">-1 (Cursed)</option>
+                    <option value="-2">-2 (Cursed)</option>
+                    <option value="-3">-3 (Cursed)</option>
+                </select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <input type="number" id="custom-slot-charges" class="stat-input" placeholder="Charges (e.g. 20)" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+                <select id="custom-armor-base" class="stat-input" title="Armour type (base AC before enchantment)" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; display: none;">
+                    <option value="7">Leather (AC 7)</option>
+                    <option value="6">Scale (AC 6)</option>
+                    <option value="5">Chain (AC 5)</option>
+                    <option value="4">Banded (AC 4)</option>
+                    <option value="3">Plate (AC 3)</option>
+                    <option value="0">Suit (AC 0)</option>
+                </select>
+                <label id="custom-slot-shield-group" style="font-size: 0.75rem; color: var(--text-muted); display: none; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="custom-slot-shield"> <span data-icon="shield" data-size="14"></span> Is a shield (-1 AC)
+                </label>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label style="font-size: 0.75rem; color: var(--danger); display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="custom-slot-cursed"> <span data-icon="skull" data-size="14"></span> Cursed Item
+                </label>
+                <label style="font-size: 0.75rem; color: var(--info); display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="custom-slot-concentration"> <span data-icon="eye" data-size="14"></span> Needs Concentration
+                </label>
+            </div>
+
+            <textarea id="custom-slot-desc" class="stat-input" placeholder="Magical effect or rules text..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; min-height: 48px; resize: vertical; font-size: 0.75rem;"></textarea>
+
+            <button type="button" onclick="equipCustomItem()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 12px; border-radius: 2px; font-weight: bold; font-size: 0.8rem; cursor: pointer;">Equip Custom</button>
+        </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ЖИВОТНОГО / ТРАНСПОРТА -->
+    <div id="mount-modal" onclick="handleMountModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 360px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.05rem;">Add Mount / Beast of Burden</h2>
+                <button type="button" onclick="closeAddMountModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Name / Label:</label>
+                <input type="text" id="mount-name-input" class="stat-input" placeholder="e.g. Barnaby the Mule, Chestnut" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+            </div>
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Type (Rules Cyclopedia p.68):</label>
+                <select id="mount-type-select" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                    <option value="mule">Mule (3,000 / 6,000 cn)</option>
+                    <option value="riding_horse" selected>Riding Horse (3,000 / 6,000 cn)</option>
+                    <option value="warhorse">Warhorse (4,000 / 8,000 cn)</option>
+                    <option value="draft_horse">Draft Horse (4,500 / 9,000 cn)</option>
+                    <option value="cart">Cart with Beast (4,000 / 8,000 cn)</option>
+                    <option value="wagon">Wagon with Team (15,000 / 25,000 cn)</option>
+                </select>
+            </div>
+            <div id="mount-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeAddMountModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" onclick="saveNewMount()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Add to Party</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ПЕРЕВОДА МОНЕТ В СЕДЕЛЬНЫЕ СУМКИ -->
+    <div id="mount-coin-modal" onclick="handleMountCoinModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 340px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.05rem;" id="mount-coin-title">Saddlebag Coins</h2>
+                <button type="button" onclick="closeMountCoinModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Action:</label>
+                <div style="display: flex; background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; padding: 2px; margin-top: 2px;">
+                    <button type="button" id="mount-dir-in" onclick="setMountCoinDirection('in')" style="flex: 1; background: var(--accent-gold); color: var(--on-accent); border: none; padding: 4px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">Pouch <span data-icon="arrowRight" data-size="14"></span> Mount</button>
+                    <button type="button" id="mount-dir-out" onclick="setMountCoinDirection('out')" style="flex: 1; background: transparent; color: var(--text-muted); border: none; padding: 4px; font-size: 0.75rem; font-weight: bold; border-radius: 2px; cursor: pointer;">Mount <span data-icon="arrowRight" data-size="14"></span> Pouch</button>
+                </div>
+            </div>
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Coin Type:</label>
+                    <span id="mount-coin-available" style="font-size: 0.75rem; color: var(--accent-gold);">Available: 0</span>
+                </div>
+                <select id="mount-coin-select" class="stat-input" onchange="updateMountCoinPreview()" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                    <option value="gp" selected>Gold Pieces (GP)</option>
+                    <option value="sp">Silver Pieces (SP)</option>
+                    <option value="cp">Copper Pieces (CP)</option>
+                    <option value="ep">Electrum Pieces (EP)</option>
+                    <option value="pp">Platinum Pieces (PP)</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Amount:</label>
+                <input type="number" id="mount-coin-amount" class="stat-input" value="100" min="1" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px; text-align: left;">
+            </div>
+            <div id="mount-coin-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" onclick="closeMountCoinModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                <button type="button" onclick="executeMountCoinTransfer()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Transfer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- БОЛЬШОЕ МОДАЛЬНОЕ ОКНО ЗАПИСИ ЖУРНАЛА -->
+    <div id="journal-entry-modal" onclick="handleJournalModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+        <div class="card" style="width: 900px; max-width: 95vw; height: 88vh; max-height: 900px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;" onclick="event.stopPropagation();">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.15rem;" id="journal-modal-heading">Journal Entry</h2>
+                <button type="button" onclick="closeJournalModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.3rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+
+            <div class="nj-fields">
+                <label class="arc-field nj-f-session"><span class="eyebrow">Session</span>
+                    <input type="number" id="journal-entry-session" class="stat-input arc-input" min="0" placeholder="#"></label>
+                <label class="arc-field nj-f-title"><span class="eyebrow">Entry title</span>
+                    <input type="text" id="journal-entry-title" class="stat-input arc-input" placeholder="e.g. The Crypt of Zenopus"></label>
+                <label class="arc-field nj-f-date"><span class="eyebrow">In-game date</span>
+                    <input type="text" id="journal-entry-date" class="stat-input arc-input" placeholder="e.g. 14 Thaumont 1000 AC"></label>
+                <label class="nj-pin-check" title="Pinned entries stay at the top of the list"><input type="checkbox" id="journal-entry-pinned"> Pinned</label>
+            </div>
+
+            <div id="journal-log-summary" class="nj-log-summary"></div>
+
+            <div class="nj-toolbar">
+                <div class="nj-tools" id="journal-tools">
+                    <button type="button" class="icon-btn" onclick="journalFormat('bold')" title="Bold (Ctrl+B)"><strong>B</strong></button>
+                    <button type="button" class="icon-btn" onclick="journalFormat('italic')" title="Italic (Ctrl+I)"><em>I</em></button>
+                    <button type="button" class="icon-btn" onclick="journalFormat('heading')" title="Heading">H</button>
+                    <button type="button" class="icon-btn" onclick="journalFormat('list')" title="Bulleted list">&bull; List</button>
+                    <button type="button" class="icon-btn" onclick="journalFormat('link')" title="Link a contact or faction: [[Name]]">[[ ]]</button>
+                </div>
+                <span class="sub-caption nj-help">**bold** · *italic* · # heading · - list · [[Name]] links a contact or faction</span>
+                <div class="segmented" role="group" aria-label="Editor view">
+                    <button type="button" id="journal-view-write" class="on" onclick="setJournalPreview(false)">Write</button>
+                    <button type="button" id="journal-view-read" onclick="setJournalPreview(true)">Read</button>
+                </div>
+            </div>
+
+            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <textarea id="journal-entry-content" class="stat-input" placeholder="Write session notes, dialogue, loot, events, plans..." style="flex: 1; border: 1px solid var(--border-color); padding: 10px; border-radius: 2px; text-align: left; width: 100%; resize: none; font-size: 0.85rem; line-height: 1.5; font-family: var(--font-body); box-sizing: border-box;"></textarea>
+                <div id="journal-entry-preview" class="note-markup nj-preview-pane" style="display: none;"></div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                <button type="button" id="journal-delete-btn" onclick="deleteCurrentJournalEntry()" style="background: transparent; color: var(--danger); border: 1px solid var(--danger); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.8rem; display: none;">Delete Entry</button>
+                <div style="display: flex; gap: 8px; margin-left: auto;">
+                    <button type="button" onclick="closeJournalModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
+                    <button type="button" onclick="saveCurrentJournalEntry()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 18px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Save Entry</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Скрипты приложения -->
+
+    <!-- Version history: restore points kept by the app -->
+    <!-- Party view: members, party treasury, dividing treasure and XP -->
+    <div id="party-modal" onclick="if (event.target === this) closePartyView()" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card cat-card party-card" onclick="event.stopPropagation();">
+            <div class="panel-head">
+                <h2 style="display: inline-flex; align-items: center; gap: 8px;"><span data-icon="party" data-size="18"></span> Party</h2>
+                <button type="button" class="icon-btn" onclick="closePartyView()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <div id="party-body" class="cat-body"></div>
+        </div>
+    </div>
+
+    <!-- Character creation guide (Dark Dungeons Chapter 4) -->
+    <div id="creation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card cat-card" onclick="event.stopPropagation();">
+            <div class="panel-head">
+                <h2 style="display: inline-flex; align-items: center; gap: 8px;"><span data-icon="portrait" data-size="18"></span> Create a Character</h2>
+                <button type="button" class="icon-btn" onclick="closeCreationGuide()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <div class="segmented cat-tabs cc-steps" id="creation-steps"></div>
+            <div id="creation-body" class="cat-body"></div>
+            <div id="creation-footer" class="cc-footer"></div>
+        </div>
+    </div>
+
+    <!-- Item catalogue: Dark Dungeons equipment, Rules Cyclopedia magic items, magic forge -->
+    <div id="catalogue-modal" onclick="if (event.target === this) closeCatalogue()" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card cat-card" onclick="event.stopPropagation();">
+            <div class="panel-head">
+                <h2 style="display: inline-flex; align-items: center; gap: 8px;"><span data-icon="bag" data-size="18"></span> Item Catalogue</h2>
+                <button type="button" class="icon-btn" onclick="closeCatalogue()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <div class="segmented cat-tabs" id="catalogue-tabs" role="tablist"></div>
+            <div class="cat-toolbar">
+                <input type="search" id="catalogue-search" class="stat-input arc-input" placeholder="Search" oninput="setCatalogueQuery(this.value)">
+                <span id="catalogue-filters"></span>
+                <span id="catalogue-msg" class="sub-caption" style="margin: 0;"></span>
+            </div>
+            <div id="catalogue-body" class="cat-body"></div>
+        </div>
+    </div>
+
+    <div id="history-modal" onclick="if (event.target === this) closeHistoryModal()" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 560px; max-width: calc(100vw - 32px); max-height: 80vh; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem; display: inline-flex; align-items: center; gap: 8px;"><span data-icon="hourglass" data-size="18"></span> Version History</h2>
+                <button type="button" onclick="closeHistoryModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+            </div>
+            <p class="sub-caption" style="margin: 0;">Earlier saves of this character, newest first. A restore point is kept every 10 minutes while you edit (the last 40 are kept). Restoring keeps the current version as a restore point too.</p>
+            <div id="history-list" class="chronicle-list" style="overflow-y: auto; min-height: 80px;"></div>
+            <div style="display: flex; justify-content: space-between; gap: 8px;">
+                <button type="button" class="btn btn-sm" onclick="saveRestorePointNow()">Save restore point now</button>
+                <button type="button" class="btn btn-sm" onclick="closeHistoryModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Level-up record -->
+    <div id="levelup-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 420px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 12px;">
+            <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
+                <div class="eyebrow" style="display: inline-flex; align-items: center; gap: 6px;"><span data-icon="up" data-size="14"></span> Level up</div>
+                <h2 id="levelup-title" style="border: none; padding: 0; margin: 4px 0 0; font-size: 1.15rem;"></h2>
+            </div>
+            <label style="display: flex; flex-direction: column; gap: 4px;">
+                <span class="eyebrow">Hit points gained</span>
+                <span id="levelup-hp-hint" class="sub-caption" style="margin: 0;"></span>
+                <input type="number" id="levelup-hp" class="stat-input" min="0" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; font-size: 1.1rem;" onkeydown="if (event.key === 'Enter') confirmLevelUp(true)">
+            </label>
+            <div>
+                <span class="eyebrow">Also at this level</span>
+                <ul id="levelup-gains" style="margin: 6px 0 0; padding-left: 20px; line-height: 1.5;"></ul>
+            </div>
+            <p class="sub-caption" style="margin: 0;">The hit points are added to your maximum and current hit points, and the level-up is written to the Adventure Log.</p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="btn btn-sm" onclick="confirmLevelUp(false)">Log without hit points</button>
+                <button type="button" class="btn btn-sm btn-accent" onclick="confirmLevelUp(true)">Record level up</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/icons.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/combat.js"></script>
+    <script src="js/weapons.js"></script>
+    <script src="js/training.js"></script>
+    <script src="js/magic.js"></script>
+    <script src="js/skills.js"></script>
+    <script src="js/paperdoll.js"></script>
+    <script src="js/items-data.js"></script>
+    <script src="js/catalogue.js"></script>
+    <script src="js/inventory.js"></script>
+    <script src="js/xp-loot.js"></script>
+    <script src="js/chronicle.js"></script>
+    <script src="js/arcana-data.js"></script>
+    <script src="js/arcana.js"></script>
+    <script src="js/dominion.js"></script>
+    <script src="js/creation.js"></script>
+    <script src="js/party.js"></script>
+    <script src="js/companions.js"></script>
+    <script src="js/holdings.js"></script>
+    <script src="js/calendar.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/notes.js"></script>
+</body>
+</html>

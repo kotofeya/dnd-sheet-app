@@ -1,0 +1,344 @@
+// Глобальные базы данных и состояние
+window.ClassesDatabase = {};
+window.GlobalDeitiesDatabase = {};
+window.GlobalWeaponsDatabase = {};
+window.GlobalSpellsDatabase = {};
+window.currentCharacter = null;
+window.currentFileName = null;
+window.isSpellbookLocked = true;
+window.currentOpponentMode = 'armed';
+
+// Ruleset switches. Defaults follow Dark Dungeons; set to true for Rules Cyclopedia behaviour.
+window.RULESET = {
+    primeRequisitePenalties: false, // RC: -20% / -10% XP for low prime requisites
+};
+
+// Debounce with flush()/cancel(): flush() runs a pending call immediately
+// (used before switching characters), cancel() drops it (used before delete).
+function debounce(func, delay) {
+    let timeout = null;
+    let lastArgs = [];
+    const debounced = function (...args) {
+        lastArgs = args;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => { timeout = null; func(...lastArgs); }, delay);
+    };
+    debounced.flush = () => {
+        if (timeout === null) return;
+        clearTimeout(timeout);
+        timeout = null;
+        func(...lastArgs);
+    };
+    debounced.cancel = () => { clearTimeout(timeout); timeout = null; };
+    return debounced;
+}
+
+const debouncedSave = debounce(() => {
+    if (typeof window.saveChanges === 'function') window.saveChanges();
+}, 500);
+
+function safeSetVal(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.value = (val !== undefined && val !== null) ? val : '';
+}
+
+function safeSetText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = (text !== undefined && text !== null) ? text : '';
+}
+
+// Escape any user-supplied text before it goes into an innerHTML template.
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
+}
+
+// Integer clamp that never treats 0 as "missing".
+function clampInt(value, min, max, fallback) {
+    const n = Math.trunc(Number(value));
+    if (value === '' || value === null || value === undefined || !Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+}
+
+// Bonuses and Penalties for Ability Scores (3 = -3 ... 18 = +3).
+function calculateModifier(score) {
+    const s = Number(score);
+    if (!Number.isFinite(s)) return 0;
+    if (s <= 1) return -4;
+    if (s <= 3) return -3;
+    if (s <= 5) return -2;
+    if (s <= 8) return -1;
+    if (s <= 12) return 0;
+    if (s <= 15) return 1;
+    if (s <= 17) return 2;
+    // Above 18 only through magic (Dark Dungeons Table 3-1).
+    if (s <= 19) return 3;
+    if (s <= 21) return 4;
+    if (s <= 23) return 5;
+    if (s <= 27) return 6;
+    if (s <= 32) return 7;
+    if (s <= 38) return 8;
+    if (s <= 45) return 9;
+    return 10;
+}
+
+// Prime requisite XP bonus. "single": +5% at 13-15, +10% at 16+.
+// "dual": +5% if EITHER score meets its threshold, +10% if BOTH do
+// (Dark Dungeons Table 4-1 and the Mystara Extra Rules Compendium class tables).
+const PRIME_REQUISITES = {
+    'Fighter':        { single: 'strength' },
+    'Dwarf':          { single: 'strength' },
+    'Mystic':         { single: 'strength' },
+    'Cleric':         { single: 'wisdom' },
+    'Magic-User':     { single: 'intelligence' },
+    'Thief':          { single: 'dexterity' },
+    'Elf':            { dual: [['strength', 13], ['intelligence', 13]] },
+    'Halfling':       { dual: [['strength', 13], ['dexterity', 13]] },
+    'Arcane Warrior': { dual: [['strength', 13], ['intelligence', 16]] },
+    'Archer':         { dual: [['strength', 13], ['dexterity', 13]] },
+    'Bandit':         { dual: [['strength', 13], ['dexterity', 13]] },
+    'Battlecaster':   { dual: [['strength', 16], ['intelligence', 16]] },
+    'Beastmaster':    { dual: [['strength', 13], ['dexterity', 13]] },
+    'Bounty Hunter':  { dual: [['intelligence', 13], ['dexterity', 13]] },
+    'Rake':           { dual: [['strength', 13], ['dexterity', 13]] },
+    'Witch':          { dual: [['intelligence', 13], ['wisdom', 13]] },
+    // GAZ13: +5% if BOTH scores are 13+, +10% if the first is 16+ and the second 13+.
+    'Shadow Elf':     { both: [['intelligence', 16], ['strength', 13]] },
+    'Shadow Shaman':  { both: [['wisdom', 16], ['intelligence', 13]] },
+    // PC1 / PC2 creature heroes.
+    'Centaur':        { single: 'strength' },
+    'Gnome':          { single: 'dexterity' },
+    'Skygnome':       { single: 'dexterity' },
+};
+
+function getPrimeRequisiteBonus(className, stats) {
+    const rule = PRIME_REQUISITES[className];
+    if (!rule || !stats) return 0;
+    const score = key => Number(stats[key]?.score) || 10;
+
+    if (rule.both) {
+        const [[key16], [key13]] = rule.both;
+        if (score(key16) >= 13 && score(key13) >= 13) return score(key16) >= 16 ? 10 : 5;
+        return 0;
+    }
+
+    if (rule.dual) {
+        const met = rule.dual.filter(([key, min]) => score(key) >= min).length;
+        return met === 2 ? 10 : (met === 1 ? 5 : 0);
+    }
+
+    const s = score(rule.single);
+    if (s >= 16) return 10;
+    if (s >= 13) return 5;
+    // Optional Rules Cyclopedia penalties (Dark Dungeons Table 4-1 has bonuses only).
+    if (window.RULESET.primeRequisitePenalties) {
+        if (className === 'Mystic') { if (s <= 5) return -10; if (s <= 8) return -5; }
+        else { if (s <= 5) return -20; if (s <= 8) return -10; }
+    }
+    return 0;
+}
+
+// Which prime requisite rule applies to a character's main XP: an Arcane Warrior
+// earns XP with its own Compendium rule rather than the plain Fighter one.
+function getXpBonusClass(character) {
+    if (!character) return '';
+    if (character.characterClass === 'Fighter' && character.subClass === 'Arcane Warrior') return 'Arcane Warrior';
+    const option = getClassOption(character);
+    if (option && option.sharesMainLevel) return option.name;   // otherwise the option has its own XP bar
+    return character.characterClass;
+}
+
+// A class option (sub-class offered only to one base class, e.g. Shadow Shaman for a
+// Shadow Elf) that levels together with the main class. Returns its ClassData or null.
+function getClassOption(character) {
+    if (!character || !character.subClass || typeof ClassesDatabase === 'undefined') return null;
+    const info = ClassesDatabase[character.subClass];
+    return info && info.optionOf && info.optionOf === character.characterClass ? info : null;
+}
+
+// XP needed per level: a class option such as the Shadow Shaman adds its own extra XP.
+function getXpTableFor(character) {
+    if (!character || typeof ClassesDatabase === 'undefined') return null;
+    const option = getClassOption(character);
+    if (option && option.extraXpTable && Array.isArray(option.xpTable)) return option.xpTable;
+    return ClassesDatabase[character.characterClass]?.xpTable || null;
+}
+
+// THAC0 by level, from the class option when it fights differently (Shadow Shaman: as a Cleric).
+function getThac0TableFor(character) {
+    if (!character || typeof ClassesDatabase === 'undefined') return null;
+    const option = getClassOption(character);
+    if (option && Array.isArray(option.thac0) && option.thac0.length) return option.thac0;
+    return ClassesDatabase[character.characterClass]?.thac0 || null;
+}
+
+window.debounce = debounce;
+window.debouncedSave = debouncedSave;
+window.safeSetVal = safeSetVal;
+window.safeSetText = safeSetText;
+window.calculateModifier = calculateModifier;
+window.escapeHtml = escapeHtml;
+window.clampInt = clampInt;
+window.formatPercent = (n) => (n >= 0 ? `+${n}%` : `${n}%`);
+// ---- Theme & ornaments ----------------------------------------------------
+// Light/dark: follows the system until the candle button picks one, then remembers it.
+function currentTheme() {
+    const set = document.documentElement.getAttribute('data-theme');
+    if (set === 'light' || set === 'dark') return set;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function toggleTheme() {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('sheet-theme', next); } catch (e) { /* storage unavailable: choice lasts this session */ }
+}
+
+function toRoman(n) {
+    let num = Math.max(1, Math.min(3999, Math.trunc(Number(n) || 1)));
+    const map = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+    let out = '';
+    map.forEach(([v, s]) => { while (num >= v) { out += s; num -= v; } });
+    return out;
+}
+
+// Wax-seal modifiers (filled when non-zero) and the Roman-numeral level.
+function refreshOrnaments() {
+    ['str', 'int', 'wis', 'dex', 'con', 'cha'].forEach(prefix => {
+        const el = document.getElementById(`${prefix}-mod`);
+        if (!el) return;
+        const v = Number(el.value) || 0;
+        el.value = v > 0 ? `+${v}` : String(v);     // Number('+2') still reads back as 2
+        el.dataset.sign = v > 0 ? 'plus' : (v < 0 ? 'minus' : 'zero');
+    });
+    const lvl = document.getElementById('char-level');
+    const stage = (typeof currentCharacter !== 'undefined') ? getCreatureStage(currentCharacter) : null;
+    safeSetText('char-level-roman', stage ? stage.short : toRoman(lvl ? lvl.value : 1));
+}
+
+// Creature heroes (PC1/PC2) begin below 1st level: "Young" and "Normal Monster"
+// stages chosen by XP (which may be negative). Returns the stage or null.
+function getCreatureStage(character) {
+    if (!character || typeof ClassesDatabase === 'undefined') return null;
+    const info = ClassesDatabase[character.characterClass];
+    if (!info || !Array.isArray(info.preStages) || !info.preStages.length) return null;
+    if ((Number(character.level) || 1) > 1) return null;
+    const xp = Number(character.experiencePoints) || 0;
+    if (xp >= (info.xpTable?.[1] ?? 0)) return null;               // reached 1st level
+    let stage = info.preStages[0];
+    info.preStages.forEach(s => { if (xp >= s.xp) stage = s; });
+    return stage;
+}
+
+// XP fields show thousands separators ("16,000"); commas are ignored when reading,
+// and the field is re-formatted when it loses focus.
+function readXp(id) {
+    const el = document.getElementById(id);
+    if (!el) return 0;
+    const raw = String(el.value).trim();
+    const n = Number(raw.replace(/[^\d]/g, '')) || 0;
+    return raw.startsWith('-') ? -n : n;       // young creature heroes start with negative XP
+}
+function writeXp(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const n = Math.trunc(Number(value) || 0);
+    el.value = document.activeElement === el ? String(n) : n.toLocaleString('en-US');
+}
+document.addEventListener('focusout', e => {
+    if (e.target && e.target.matches && e.target.matches('[data-xp-field]')) writeXp(e.target.id, readXp(e.target.id));
+});
+
+// Progress ribbon from this level's XP threshold to the next one.
+function renderXpBar(prefix, level, xp, xpTable, stageInfo) {
+    const bar = document.getElementById(`${prefix}xp-bar`);
+    const fill = document.getElementById(`${prefix}xp-bar-fill`);
+    if (!bar || !fill) return;
+    const lvl = clampInt(level, 1, 36, 1);
+    const fmt = n => Math.round(n).toLocaleString('en-US');
+    // stageInfo (creature heroes below 1st level): { fromLabel, from, toLabel, to }
+    const from = stageInfo ? stageInfo.from : (Array.isArray(xpTable) ? (xpTable[lvl] ?? 0) : 0);
+    const to = stageInfo ? stageInfo.to : (Array.isArray(xpTable) && lvl < 36 ? xpTable[lvl + 1] : undefined);
+
+    let pct, togo, toLabel, state = 'progress';
+    if (!Array.isArray(xpTable) || xpTable.length === 0) {
+        pct = 0; togo = ''; toLabel = '';
+    } else if (to === undefined) {
+        pct = 100; togo = 'Highest level'; toLabel = 'Max';
+        state = 'max';
+    } else {
+        pct = to > from ? ((xp - from) / (to - from)) * 100 : 100;
+        pct = Math.max(0, Math.min(100, pct));
+        togo = xp >= to ? 'Ready to advance' : `${fmt(to - xp)} to go`;
+        toLabel = `${stageInfo ? stageInfo.toLabel : `Level ${toRoman(lvl + 1)}`} · ${fmt(to)}`;
+        if (xp >= to) state = 'ready';
+    }
+    fill.style.width = `${pct}%`;
+    bar.dataset.state = state;
+    bar.setAttribute('aria-valuenow', String(Math.round(pct)));
+    safeSetText(`${prefix}xp-bar-from`, `${stageInfo ? stageInfo.fromLabel : `Level ${toRoman(lvl)}`} · ${fmt(from)}`);
+    safeSetText(`${prefix}xp-bar-togo`, togo);
+    safeSetText(`${prefix}xp-bar-to`, toLabel);
+}
+
+// In-page message and confirm dialogs. The browser's own alert()/confirm() are not used:
+// in Electron on Windows they can leave the window unable to take clicks or typing.
+function sheetDialog(message, { confirm = false, okText = 'OK', cancelText = 'Cancel' } = {}) {
+    return new Promise(resolve => {
+        const old = document.getElementById('sheet-dialog');
+        if (old) old.remove();
+        const wrap = document.createElement('div');
+        wrap.id = 'sheet-dialog';
+        wrap.setAttribute('role', 'dialog');
+        wrap.setAttribute('aria-modal', 'true');
+        wrap.style.cssText = 'position: fixed; inset: 0; background: var(--overlay); z-index: 2000; display: flex; justify-content: center; align-items: center; padding: 16px;';
+        const box = document.createElement('div');
+        box.className = 'card';
+        box.style.cssText = 'width: min(420px, 100%); display: flex; flex-direction: column; gap: 14px; margin: 0;';
+        const text = document.createElement('div');
+        text.style.cssText = 'white-space: pre-wrap; line-height: 1.45;';
+        text.textContent = String(message ?? '');
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; justify-content: flex-end; gap: 8px;';
+        const done = value => { wrap.remove(); document.removeEventListener('keydown', onKey, true); resolve(value); };
+        const onKey = e => {
+            if (e.key === 'Escape') { e.preventDefault(); done(false); }
+            else if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        };
+        if (confirm) {
+            const cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'btn btn-sm'; cancel.textContent = cancelText;
+            cancel.onclick = () => done(false);
+            row.appendChild(cancel);
+        }
+        const ok = document.createElement('button');
+        ok.type = 'button'; ok.className = 'btn btn-sm btn-accent'; ok.textContent = okText;
+        ok.onclick = () => done(true);
+        row.appendChild(ok);
+        box.append(text, row);
+        wrap.appendChild(box);
+        wrap.addEventListener('click', e => { if (e.target === wrap) done(false); });
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(wrap);
+        ok.focus();
+    });
+}
+function sheetAlert(message) { return sheetDialog(message); }
+function sheetConfirm(message, okText = 'OK') { return sheetDialog(message, { confirm: true, okText }); }
+// Any remaining alert() call shows the in-page dialog instead (it does not block).
+window.alert = message => { sheetAlert(message); };
+window.sheetDialog = sheetDialog;
+window.sheetAlert = sheetAlert;
+window.sheetConfirm = sheetConfirm;
+
+window.readXp = readXp;
+window.writeXp = writeXp;
+window.renderXpBar = renderXpBar;
+window.getPrimeRequisiteBonus = getPrimeRequisiteBonus;
+window.toggleTheme = toggleTheme;
+window.toRoman = toRoman;
+window.refreshOrnaments = refreshOrnaments;
+window.getXpBonusClass = getXpBonusClass;
+window.getClassOption = getClassOption;
+window.getCreatureStage = getCreatureStage;
+window.getXpTableFor = getXpTableFor;
+window.getThac0TableFor = getThac0TableFor;

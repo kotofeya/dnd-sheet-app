@@ -1,0 +1,21 @@
+{
+  "name": "dnd-sheet-app",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && electron ./dist/main.js",
+    "test": "tsc && node --test"
+  },
+  "main": "./dist/main.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "electron": "^43.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2"
+  }
+}
