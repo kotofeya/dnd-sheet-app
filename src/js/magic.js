@@ -77,7 +77,7 @@ function updateClassFeaturesDisplay() {
                         <span class="note-col-title">${escapeHtml(f.name)}</span>
                         <span class="eyebrow">Level ${toRoman(f.minLevel)}</span>
                     </div>
-                    <div class="note-col-body">${escapeHtml(f.description)}</div>
+                    <div class="note-col-body">${escapeHtml(f.description)}${f.name === 'Magic Item Use' && classInfo.itemUse ? `<div class="item-use-row">${escapeHtml(itemUseRowText(classInfo, level, stage))}</div>` : ''}</div>
                 `;
                 mainList.appendChild(row);
             });
@@ -149,8 +149,21 @@ function getSpellsForProfile(profile, book, deity) {
     const b = book || {};
     const allCustom = Array.isArray(b.customSpells) ? b.customSpells : [];
     // A class option's own list (Shadow Shaman): only those spells, all known as a cleric knows hers.
+    if (profile.spellList === 'dryad') {
+        // PC1: a dryad casts as a druid (cleric and druid spells) plus the two spells PC1 suggests.
+        return Object.values(GlobalSpellsDatabase).filter(s => ['divine', 'druid', 'dryad'].includes(s.casterType));
+    }
     if (profile.spellList) {
-        return Object.values(GlobalSpellsDatabase).filter(s => s.casterType === profile.spellList);
+        const list = Object.values(GlobalSpellsDatabase).filter(s => s.casterType === profile.spellList);
+        // Race changes to the list (PC1: leprechauns, sprites and sidhe move or add a few spells).
+        const changes = Array.isArray(profile.spellListChanges) ? profile.spellListChanges : [];
+        if (!changes.length) return list;
+        const out = list.map(s => {
+            const ch = changes.find(c => c.name && spellNameKey(c.name) === spellNameKey(s.name));
+            return ch ? { ...s, level: ch.level, grantNote: `Level ${ch.level} for this race (normally level ${s.level})` } : s;
+        });
+        changes.filter(c => c.id && GlobalSpellsDatabase[c.id]).forEach(c => out.push({ ...GlobalSpellsDatabase[c.id], level: c.level }));
+        return out;
     }
     const custom = allCustom.filter(c => (c.casterType || 'arcane') === profile.type);
     if (profile.type === 'divine') {
@@ -197,6 +210,16 @@ function withPatronSpells(list, deityName) {
     return out;
 }
 
+// PC1 fairy item use (S/F/B/U on d%) for the character's level; below 1st level every try fails.
+function itemUseRowText(classInfo, level, stage) {
+    if (stage) return 'Below 1st level: F 01-00 (such items never work for you yet).';
+    const lvl = Math.max(1, Math.min(36, Number(level) || 1));
+    const [s, f, b] = classInfo.itemUse[lvl] || classInfo.itemUse[classInfo.itemUse.length - 1];
+    const pct = n => n >= 100 ? '00' : String(n).padStart(2, '0');
+    const range = (lo, hi) => lo > hi ? '—' : (lo === hi ? pct(lo) : `${pct(lo)}-${pct(hi)}`);
+    return `Level ${toRoman(lvl)}: S ${range(1, s)} · F ${range(s + 1, f)} · B ${range(f + 1, b)} · U ${range(b + 1, 100)}`;
+}
+
 function getCasterProfile(character) {
     if (!character) return { type: null, effectiveLevel: 0, slots: [] };
 
@@ -239,8 +262,11 @@ function getCasterProfile(character) {
     // Any other class that casts from its own level (Battlecaster, Witch...).
     const ownClass = ClassesDatabase[className];
     if (ownClass && ownClass.casterType && Array.isArray(ownClass.spellProgression)) {
-        const slots = (ownClass.spellProgression[level] || []).slice();
-        return { type: ownClass.casterType, effectiveLevel: level, slots };
+        // Creature heroes below 1st level use their stage's spells (a young hsiao), or none.
+        const stage = (typeof getCreatureStage === 'function') ? getCreatureStage(character) : null;
+        const slots = stage ? (stage.spells || []).slice() : (ownClass.spellProgression[level] || []).slice();
+        // PC1 races cast from their own list: fairy spells (leprechaun, sprite, sidhe), druid spells (dryad).
+        return { type: ownClass.casterType, effectiveLevel: stage ? 0 : level, slots, spellList: ownClass.spellList || null, spellListChanges: ownClass.spellListChanges || null };
     }
 
     return { type: null, effectiveLevel: 0, slots: [] };
@@ -281,23 +307,48 @@ function renderSpellbooks() {
     renderSpellbook(option || { type: null, slots: [] }, 'spellbook-section-option');
 }
 
-function openSpellModal() {
+// The custom spell being edited (null while creating a new one).
+let editingCustomSpellId = null;
+
+function openSpellModal(spellId) {
+    const spell = spellId ? ((currentCharacter && currentCharacter.spellbook && currentCharacter.spellbook.customSpells) || []).find(s => s.id === spellId) : null;
+    editingCustomSpellId = spell ? spell.id : null;
     document.getElementById('custom-spell-modal').style.display = 'flex';
-    safeSetVal('new-spell-name', '');
-    safeSetVal('new-spell-range', '');
-    safeSetVal('new-spell-duration', '');
-    safeSetVal('new-spell-effect', '');
-    safeSetVal('new-spell-desc', '');
+    const title = document.getElementById('custom-spell-title');
+    if (title) title.textContent = spell ? 'Edit Custom Spell' : 'Create Custom Spell';
+    const save = document.getElementById('custom-spell-save');
+    if (save) save.textContent = spell ? 'Save Changes' : 'Save Spell';
+    safeSetVal('new-spell-name', spell ? spell.name || '' : '');
+    safeSetVal('new-spell-level', spell ? spell.level || 1 : 1);
+    safeSetVal('new-spell-range', spell ? spell.range || '' : '');
+    safeSetVal('new-spell-duration', spell ? spell.duration || '' : '');
+    safeSetVal('new-spell-effect', spell ? spell.effect || '' : '');
+    safeSetVal('new-spell-desc', spell ? spell.description || '' : '');
+    showResearchedOption('new-spell-researched', !spell);
+}
+
+// "I researched it" on the add-spell windows: only for a wizard who owns a library (GAZ3 p. 66).
+function showResearchedOption(id, show) {
+    const row = document.getElementById(id + '-row');
+    const box = document.getElementById(id);
+    const ok = show && typeof libraryCanTakeResearch === 'function' && libraryCanTakeResearch();
+    if (row) row.style.display = ok ? 'flex' : 'none';
+    if (box) box.checked = false;
+}
+function researchedOptionChecked(id) {
+    const row = document.getElementById(id + '-row');
+    return Boolean(row && row.style.display !== 'none' && document.getElementById(id)?.checked);
 }
 
 function closeSpellModal() {
     document.getElementById('custom-spell-modal').style.display = 'none';
+    editingCustomSpellId = null;
 }
 
 function saveCustomSpell() {
     if (!currentCharacter) return;
     const name = document.getElementById('new-spell-name').value.trim();
-    const level = Number(document.getElementById('new-spell-level').value) || 1;
+    const level = Math.min(9, Math.max(1, Math.round(Number(document.getElementById('new-spell-level').value) || 1)));
     const range = document.getElementById('new-spell-range').value.trim();
     const duration = document.getElementById('new-spell-duration').value.trim();
     const effect = document.getElementById('new-spell-effect').value.trim();
@@ -306,13 +357,32 @@ function saveCustomSpell() {
     if (!name) return alert("Spell needs a name!");
     if (!currentCharacter.spellbook) currentCharacter.spellbook = { knownSpellIds: [], customSpells: [], preparedSpells: {} };
     
+    if (!Array.isArray(currentCharacter.spellbook.customSpells)) currentCharacter.spellbook.customSpells = [];
+
+    const existing = editingCustomSpellId && currentCharacter.spellbook.customSpells.find(s => s.id === editingCustomSpellId);
+    if (existing) {
+        // A spell moved to another level can't stay prepared in its old level's slots.
+        if (existing.level !== level) {
+            const book = currentCharacter.spellbook;
+            if (book.preparedSpells) delete book.preparedSpells[existing.id];
+            if (book.castSpells) delete book.castSpells[existing.id];
+        }
+        Object.assign(existing, { name, level, range, duration, effect, description: desc });
+        closeSpellModal();
+        debouncedSave();
+        renderSpellbooks();
+        return;
+    }
+
     const profile = getCasterProfile(currentCharacter);
     const casterType = profile.type || 'arcane';
 
+    const newId = 'custom_' + Date.now();
     currentCharacter.spellbook.customSpells.push({
-        id: 'custom_' + Date.now(),
+        id: newId,
         name, level, casterType, range, duration, effect, description: desc, isCustom: true
     });
+    if (researchedOptionChecked('new-spell-researched') && typeof addResearchedSpellToLibrary === 'function') addResearchedSpellToLibrary(name, level, newId);
     
     closeSpellModal();
     debouncedSave();
@@ -328,7 +398,7 @@ function openCompendiumModal() {
 
     const availableSpells = Object.values(GlobalSpellsDatabase).filter(s => 
         s.casterType === 'arcane' && !knownIds.includes(s.id)
-    );
+    ).sort((a, b) => (a.level - b.level) || String(a.name).localeCompare(String(b.name)));
 
     select.innerHTML = '';
     if (availableSpells.length === 0) {
@@ -350,6 +420,7 @@ function openCompendiumModal() {
     };
 
     document.getElementById('compendium-modal').style.display = 'flex';
+    showResearchedOption('compendium-researched', true);
 }
 
 function closeCompendiumModal() {
@@ -367,6 +438,8 @@ function addSpellFromCompendium() {
 
     if (!currentCharacter.spellbook.knownSpellIds.includes(spellId)) {
         currentCharacter.spellbook.knownSpellIds.push(spellId);
+        const sp = GlobalSpellsDatabase[spellId];
+        if (sp && researchedOptionChecked('compendium-researched') && typeof addResearchedSpellToLibrary === 'function') addResearchedSpellToLibrary(sp.name, sp.level, sp.id);
     }
 
     closeCompendiumModal();
@@ -392,13 +465,15 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
     }
 
     container.style.display = 'block';
-    const title = profile.title || (profile.type === 'arcane' ? 'Arcane Spellbook' : 'Divine Prayers');
+    const title = profile.title || (profile.spellList === 'fairy' ? 'Fairy Spells' : profile.spellList === 'dryad' ? 'Druid Spells'
+        : profile.type === 'arcane' ? 'Arcane Spellbook' : 'Divine Prayers');
     const maxSpellLevel = profile.slots.length;
     const book = (currentCharacter && currentCharacter.spellbook) || { knownSpellIds: [], customSpells: [], preparedSpells: {} };
     
     const allSpells = getSpellsForProfile(profile, book, currentCharacter && currentCharacter.deity);
 
     let tiersHtml = '';
+    const spellSort = SPELL_SORTS.some(o => o.value === book.sortBy) ? book.sortBy : 'book';
     const safeSlots = profile.slots || [];
     const prepMap = book.preparedSpells || {};
     const castMap = book.castSpells || {};
@@ -410,7 +485,7 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
 
     for (let lvl = 1; lvl <= maxSpellLevel; lvl++) {
         const slotCount = safeSlots[lvl - 1] || 0;
-        const spellsOfLevel = allSpells.filter(s => s.level === lvl);
+        const spellsOfLevel = sortSpellList(allSpells.filter(s => s.level === lvl), spellSort, prepMap);
         const totalPreparedInTier = spellsOfLevel.reduce((sum, s) => sum + (prepMap[s.id] || 0), 0);
         const castInTier = spellsOfLevel.reduce((sum, s) => sum + Math.min(castMap[s.id] || 0, prepMap[s.id] || 0), 0);
         preparedTotal += totalPreparedInTier; castTotal += castInTier;
@@ -433,8 +508,11 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
                 : '';
 
             const isDeletable = s.isCustom || (profile.type === 'arcane' && book.knownSpellIds && book.knownSpellIds.includes(s.id));
+            const editBtnHtml = (!isSpellbookLocked && s.isCustom)
+                ? `<button type="button" onclick="openSpellModal('${s.id}'); event.stopPropagation();" class="spell-edit-btn" title="Edit spell" aria-label="Edit ${escapeHtml(s.name)}">${getIcon('edit', 14)}</button>`
+                : '';
             const deleteBtnHtml = (!isSpellbookLocked && isDeletable) 
-                ? `<button onclick="deleteSpell('${s.id}', ${s.isCustom}); event.stopPropagation();" style="background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 0.9rem; margin-left: auto;" title="Remove Spell" aria-label="Remove spell">${getIcon('close', 15)}</button>` 
+                ? `<button onclick="deleteSpell('${s.id}', ${s.isCustom}); event.stopPropagation();" style="background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 0.9rem; display: inline-flex;" title="Remove Spell" aria-label="Remove spell">${getIcon('close', 15)}</button>` 
                 : '';
 
             return `
@@ -443,7 +521,7 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
                     <div onclick="toggleSpellDetails('${s.id}')" style="color: ${allSpent ? 'var(--text-muted)' : (count > 0 ? 'var(--accent-gold)' : 'var(--text-main)')}; ${allSpent ? 'text-decoration: line-through;' : ''} font-weight: bold; font-size: 0.9rem; cursor: pointer; flex-grow: 1;">
                         ${escapeHtml(s.name)} ${s.isCustom ? `<span style="color:var(--accent-gold);" title="Custom Spell">${getIcon('star', 12)}</span>` : ''}${s.grantedBy ? `<span class="patron-spell-tag" title="${escapeHtml(s.grantNote || '')}">${getIcon('candle', 11)}</span>` : ''}${pipsHtml}
                     </div>
-                    ${deleteBtnHtml}
+                    ${editBtnHtml || deleteBtnHtml ? `<span class="spell-row-actions">${editBtnHtml}${deleteBtnHtml}</span>` : ''}
                     <div style="display: flex; align-items: center; gap: 6px; background: var(--inset); padding: 2px 6px; border-radius: 2px; border: 1px solid var(--border-color); margin-left: 8px;" onclick="event.stopPropagation();">
                         <button onclick="adjustPreparedSpell('${s.id}', ${lvl}, -1, ${slotCount}, '${key}')" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 0 4px; font-weight: bold;">-</button>
                         <span style="color: ${count > 0 ? 'var(--accent-gold)' : 'var(--text-muted)'}; font-family: monospace; width: 12px; text-align: center;">${count}</span>
@@ -491,16 +569,47 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
                 ${customSpellBtn}
             </div>
         </div>
-        <div class="tally" style="margin-bottom: 16px;">
+        <div class="tally spell-tally" style="margin-bottom: 16px;">
             <span>Casts as level <strong>${toRoman(profile.effectiveLevel)}</strong></span>
             <span>Highest spell level <strong>${maxSpellLevel}</strong></span>
             ${combo ? `<span title="Spell Combination: any mix of spell levels up to your total">Spell levels <strong>${levelsUsed} / ${capacity}</strong></span>` : ''}
             ${preparedTotal ? `<span>Spells left today <strong>${preparedTotal - castTotal} / ${preparedTotal}</strong></span>` : ''}
+            <label class="spell-sort">Sort <select class="stat-input" onchange="setSpellSort(this.value)" aria-label="Sort spells">${SPELL_SORTS.map(o => `<option value="${o.value}" ${o.value === spellSort ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
             ${tiersHtml}
         </div>
     `;
+}
+
+// How the spells inside each level are ordered.
+const SPELL_SORTS = [
+    { value: 'book', label: 'Book order' },
+    { value: 'name', label: 'Name (A–Z)' },
+    { value: 'nameDesc', label: 'Name (Z–A)' },
+    { value: 'prepared', label: 'Prepared first' },
+    { value: 'special', label: 'Custom & patron first' },
+];
+
+function sortSpellList(list, mode, prepMap = {}) {
+    const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
+    const out = list.slice();
+    if (mode === 'name') out.sort(byName);
+    else if (mode === 'nameDesc') out.sort((a, b) => byName(b, a));
+    else if (mode === 'prepared') out.sort((a, b) => ((prepMap[b.id] || 0) - (prepMap[a.id] || 0)) || byName(a, b));
+    else if (mode === 'special') {
+        const rank = s => s.isCustom ? 0 : s.grantedBy ? 1 : 2;
+        out.sort((a, b) => (rank(a) - rank(b)) || byName(a, b));
+    }
+    return out;
+}
+
+function setSpellSort(mode) {
+    if (!currentCharacter) return;
+    if (!currentCharacter.spellbook) currentCharacter.spellbook = { knownSpellIds: [], customSpells: [], preparedSpells: {} };
+    if (mode === 'book') delete currentCharacter.spellbook.sortBy; else currentCharacter.spellbook.sortBy = mode;
+    debouncedSave();
+    renderSpellbooks();
 }
 
 function spellCombinationActive(profile) {
@@ -692,6 +801,11 @@ function getThiefAbilities(character) {
         add('Remove Outdoor Traps', at('Remove Traps', lvl), 'Outdoors only; one try per trap');
         add('Cover Tracks', Math.min(100, 50 + 3 * (lvl - 1)), `Up to ${lvl} turn(s) per day`);
         add('Track (outdoors)', 75, '+2%/creature, -10%/day, -25%/hr rain');
+    } else if (Array.isArray(ClassesDatabase[cls]?.thiefSkillsAs)) {
+        // PC1: a rogue sidhe as a thief of its level; a woodrake by its own steps (and by stage while growing).
+        const stage = (typeof getCreatureStage === 'function') ? getCreatureStage(character) : null;
+        const tl = stage ? (Number(stage.thiefLevel) || 0) : (Number(ClassesDatabase[cls].thiefSkillsAs[lvl]) || 0);
+        if (tl > 0) names.forEach(n => add(n, at(n, tl), tl !== lvl || stage ? `As a level ${tl} Thief` : ''));
     } else if (cls === 'Bounty Hunter' && lvl >= 2) {
         const half = Math.max(1, Math.floor(lvl / 2));
         add('Open Locks', at('Open Locks', half), `As a level ${half} Thief`);

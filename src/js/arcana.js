@@ -20,6 +20,7 @@ function arcanaState() {
     if (!Array.isArray(a.research)) a.research = [];
     a.research = a.research.filter(p => p && typeof p === 'object' && RESEARCH_KINDS[p.kind]);
     if (!a.library || typeof a.library !== 'object') a.library = { own: false, value: 0 };
+    if (!Array.isArray(a.library.books)) a.library.books = [];
     if (!a.mentor || typeof a.mentor !== 'object') a.mentor = {};
     if (!Array.isArray(a.mentor.spells)) a.mentor.spells = [];
     if (!a.radiance || typeof a.radiance !== 'object') a.radiance = {};
@@ -580,13 +581,21 @@ function renderSchoolCard() {
 // ---------------------------------------------------------------------------
 const RESEARCH_KINDS = { spell: 'Spell', item: 'Magic item', weapon: 'Weapon enchantment', armour: 'Armour enchantment' };
 
+// The library's worth: the listed books (studied ones at their true value, the others at what
+// you believe they are worth) plus everything else in it (the value field, which also
+// receives 10% of each discovery's cost).
+function bookValue(b) { return Math.max(0, Number(b.studied && b.trueValue !== '' && b.trueValue != null ? b.trueValue : b.value) || 0); }
+function libraryBooksValue(lib) { return ((lib && lib.books) || []).reduce((s, b) => s + bookValue(b), 0); }
+function libraryTotal(lib = arcanaState()?.library) { return lib ? (Number(lib.value) || 0) + libraryBooksValue(lib) : 0; }
+function bookStudyDays(b) { return Math.max(1, Math.ceil((Number(b.trueValue) || Number(b.value) || 0) / 100)); }
+
 function libraryMinimum(spellLevel) {
     return 4000 + 2000 * Math.max(0, spellLevel - 1);
 }
 function libraryBonus(spellLevel) {
     const a = arcanaState();
     if (!a.library.own) return 0;
-    const over = (Number(a.library.value) || 0) - libraryMinimum(spellLevel);
+    const over = libraryTotal(a.library) - libraryMinimum(spellLevel);
     return over > 0 ? Math.min(10, Math.floor(over / 2000)) : 0;
 }
 function researchCalc(p) {
@@ -608,7 +617,7 @@ function researchCalc(p) {
         const L = clampInt(p.level, 1, 9, 1);
         cost = 1000 * L * (p.radiance ? 2 : 1);
         chances.push({ label: `${p.isNew ? 'New' : 'Common'} ${ordinal(L)}-level spell${p.radiance ? ' (Radiance)' : ''}`, pct: chanceFor(L, p.isNew, p.radiance) });
-        if (a.library.own && (Number(a.library.value) || 0) < libraryMinimum(L)) warnings.push(`Your library must be worth ${fmtDc(libraryMinimum(L))} for ${ordinal(L)}-level research.`);
+        if (a.library.own && libraryTotal(a.library) < libraryMinimum(L)) warnings.push(`Your library must be worth ${fmtDc(libraryMinimum(L))} for ${ordinal(L)}-level research.`);
     } else if (p.kind === 'item') {
         const levels = String(p.effects || '').split(/[,;\s]+/).map(Number).filter(n => n >= 1 && n <= 9);
         const total = levels.reduce((s, n) => s + n, 0);
@@ -684,9 +693,10 @@ function resolveResearch(id, success) {
     p.resolvedAt = new Date().toISOString();
     const what = p.name || RESEARCH_KINDS[p.kind];
     let extra = '';
-    if (success && a.library.own && p.kind === 'spell') {
-        const add = Math.round((Number(p.gold) || calc.cost) * 0.1);
-        a.library.value = (Number(a.library.value) || 0) + add;
+    // GAZ3 p. 66: 10% of the gold spent on a discovered spell goes into your own library (once per project).
+    if (success && a.library.own && p.kind === 'spell' && !p.libraryAdded) {
+        const add = addSpellToLibraryValue(Number(p.gold) || calc.cost);
+        p.libraryAdded = add;
         extra = ` Library value +${fmtDc(add)}.`;
     }
     if (success && p.kind === 'spell') extra += addResearchedSpell(p);
@@ -732,6 +742,151 @@ async function deleteResearch(id) {
     a.research = a.research.filter(x => x.id !== id);
     arcanaSave();
 }
+// ---- Books (GAZ3 p. 66, Creating a Library) -------------------------------------------
+async function editLibraryBook(id) {
+    const a = arcanaState(); if (!a || typeof notesFormModal !== 'function') return;
+    const book = id ? a.library.books.find(b => b.id === id) : null;
+    const appraisal = (arcIntScore() + arcaneLevel()) * 2;
+    const res = await notesFormModal({
+        title: book ? 'Edit book' : 'Add a book to the library',
+        canDelete: Boolean(book),
+        values: book ? { ...book, trueValue: book.trueValue ?? '' } : { pay: 'no' },
+        fields: [
+            { key: 'title', label: 'Title', wide: true, max: 120, placeholder: 'e.g. Codex of the Radiant Flame' },
+            { key: 'subject', label: 'Subject', max: 80, placeholder: 'e.g. fire magic, necromancy, history' },
+            { key: 'source', label: 'Where it came from', max: 80, placeholder: 'Merchant, treasure, abandoned library…' },
+            { key: 'value', label: 'Value you believe (dc)', placeholder: '0' },
+            { key: 'price', label: 'Price paid (dc)', placeholder: '0' },
+            ...(book ? [] : [{ key: 'pay', label: 'Pay the price now', type: 'select', options: [{ value: 'no', label: 'No (already paid / found)' }, { value: 'yes', label: 'Yes, from my purse' }] }]),
+            { key: 'trueValue', label: 'True value, once studied (dc)', placeholder: 'the DM reveals it' },
+            { key: 'notes', label: 'Notes (wards, appearance, contents…)', type: 'textarea', rows: 3, wide: true },
+        ],
+        extraHtml: `<p class="sub-caption arc-note">A book found or offered for sale is worth 10 dc × d100. Your Appraisal Score is ${appraisal}% ((Int + level) × 2): the DM rolls it in secret; on a failure your estimate is off by the difference in percent (even: too high, odd: too low). Studying a book takes a day per 100 dc of its true value and reveals that value. GAZ3 p. 66.</p>`,
+    });
+    if (!res) return;
+    if (res === '__delete__') {
+        if (!(await sheetConfirm(`Remove “${book.title || 'this book'}” from the library?`, 'Remove'))) return;
+        a.library.books = a.library.books.filter(b => b.id !== book.id);
+        arcanaSave();
+        return;
+    }
+    const num = v => { const n = Math.round(Number(String(v).replace(/[^0-9.\-]/g, ''))); return Number.isFinite(n) && n > 0 ? n : 0; };
+    const data = {
+        title: (res.title || '').trim().slice(0, 120) || 'Untitled book',
+        subject: (res.subject || '').slice(0, 80), source: (res.source || '').slice(0, 80),
+        value: num(res.value), price: num(res.price), notes: (res.notes || '').slice(0, 2000),
+        trueValue: String(res.trueValue || '').trim() === '' ? '' : num(res.trueValue),
+    };
+    if (!book && res.pay === 'yes' && data.price > 0) {
+        if (typeof holdingsPay !== 'function' || !(await holdingsPay(data.price))) return;
+    }
+    if (book) Object.assign(book, data);
+    else {
+        a.library.books.push({ id: 'bk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...data, studied: false, added: new Date().toISOString() });
+        arcanaLog(`Library: added “${data.title}”${data.price ? ` for ${fmtDc(data.price)}` : ''}${data.value ? ` (believed worth ${fmtDc(data.value)})` : ''}.`, { library: true });
+    }
+    arcanaSave();
+}
+async function studyLibraryBook(id) {
+    const a = arcanaState(); if (!a) return;
+    const book = a.library.books.find(b => b.id === id); if (!book) return;
+    if (book.studied) { book.studied = false; arcanaSave(); return; }
+    const res = await notesFormModal({
+        title: `Studied: ${book.title}`,
+        values: { trueValue: book.trueValue !== '' && book.trueValue != null ? book.trueValue : book.value },
+        fields: [{ key: 'trueValue', label: 'True value the DM reveals (dc)', wide: true }],
+        extraHtml: `<p class="sub-caption arc-note">Studying takes a day per 100 dc of the book's true value (${bookStudyDays(book)} day${bookStudyDays(book) > 1 ? 's' : ''} at the value you believe).</p>`,
+        okText: 'Mark studied',
+    });
+    if (!res || res === '__delete__') return;
+    const tv = Math.max(0, Math.round(Number(res.trueValue) || 0));
+    book.trueValue = tv; book.studied = true;
+    arcanaLog(`Library: studied “${book.title}” (${bookStudyDays(book)} days); true value ${fmtDc(tv)}${book.value && tv !== book.value ? `, not ${fmtDc(book.value)} as believed` : ''}.`, { library: true });
+    arcanaSave();
+}
+
+function renderLibraryBooks(lib) {
+    const books = lib.books || [];
+    const rows = books.map(b => {
+        const shown = bookValue(b);
+        const unsure = !b.studied;
+        return `<div class="lib-book">
+            <div class="lib-book-main">
+                <button type="button" class="link-btn lib-book-title" onclick="editLibraryBook('${b.id}')">${escapeHtml(b.title || 'Untitled book')}</button>
+                ${b.subject ? `<span class="sub-caption">${escapeHtml(b.subject)}</span>` : ''}
+                ${b.notes ? `<div class="sub-caption lib-book-notes">${escapeHtml(b.notes)}</div>` : ''}
+            </div>
+            <span class="lib-book-val" title="${unsure ? 'The value you believe; studying the book reveals its true value' : 'True value'}">${fmtDc(shown)}${unsure ? '?' : ''}</span>
+            <button type="button" class="btn btn-sm${b.studied ? '' : ' btn-accent'}" onclick="studyLibraryBook('${b.id}')" title="${b.studied ? 'Studied: click to mark as not studied' : `Study it: ${bookStudyDays(b)} day(s)`}">${b.studied ? `${getIcon('check', 12)} Studied` : `Study (${bookStudyDays(b)} d)`}</button>
+        </div>`;
+    }).join('');
+    return `<div class="arc-panel lib-books">
+        <div class="arc-row-head"><strong>Books (${books.length})</strong><span class="tally"><span>Books <strong>${fmtDc(libraryBooksValue(lib))}</strong></span>${Number(lib.fromResearch) ? `<span title="10% of the cost of each spell discovered (GAZ3 p. 66), included in the other library value">From research <strong>${fmtDc(lib.fromResearch)}</strong></span>` : ''}<span>Library total <strong>${fmtDc(libraryTotal(lib))}</strong></span></span><span class="arc-actions" style="margin: 0;"><button type="button" class="btn btn-sm" onclick="countResearchedSpells()" title="Add 10% of the research cost of spells already in your spellbook that you researched yourself (GAZ3 p. 66)">Count researched spells</button><button type="button" class="btn btn-sm" onclick="editLibraryBook()">+ Book</button></span></div>
+        ${rows || '<div class="ledger-note">No books listed yet. Add the tomes you buy or find; their value counts toward the library.</div>'}
+    </div>`;
+}
+
+// Adds 10% of a discovered spell's cost to the library (GAZ3 p. 66) and returns the amount.
+function addSpellToLibraryValue(goldSpent) {
+    const a = arcanaState(); if (!a || !a.library.own) return 0;
+    const add = Math.round((Number(goldSpent) || 0) * 0.1);
+    a.library.value = (Number(a.library.value) || 0) + add;
+    a.library.fromResearch = (Number(a.library.fromResearch) || 0) + add;
+    return add;
+}
+// For spells researched outside a research project here (entered through + Compendium or + Custom Spell).
+function libraryCanTakeResearch() {
+    const a = currentCharacter && currentCharacter.arcana;
+    return Boolean(a && a.library && a.library.own && typeof isArcaneCharacter === 'function' && isArcaneCharacter());
+}
+function addResearchedSpellToLibrary(name, level, spellId) {
+    const lvl = clampInt(level, 1, 9, 1);
+    const lib = arcanaState().library;
+    if (!Array.isArray(lib.countedSpells)) lib.countedSpells = [];
+    if (spellId) { if (lib.countedSpells.includes(spellId)) return 0; lib.countedSpells.push(spellId); }
+    const add = addSpellToLibraryValue(1000 * lvl);
+    if (add) arcanaLog(`Library: researched ${name} (${ordinal(lvl)} level, ${fmtDc(1000 * lvl)}); library value +${fmtDc(add)}.`, { library: true });
+    arcanaSave();
+    return add;
+}
+
+// Spells already in the spellbook that were researched before this was tracked: pick them once.
+async function countResearchedSpells() {
+    const a = arcanaState(); if (!a || !a.library.own) return;
+    const lib = a.library;
+    if (!Array.isArray(lib.countedSpells)) lib.countedSpells = [];
+    const book = currentCharacter.spellbook || {};
+    const fromProjects = new Set(a.research.filter(p => p.kind === 'spell' && p.libraryAdded).map(p => String(p.name || '').trim().toLowerCase()));
+    const spells = [
+        ...(book.knownSpellIds || []).map(id => GlobalSpellsDatabase[id]).filter(Boolean),
+        ...(book.customSpells || []).filter(s => (s.casterType || 'arcane') === 'arcane'),
+    ].filter(s => !lib.countedSpells.includes(s.id) && !fromProjects.has(String(s.name).toLowerCase()))
+     .sort((x, y) => (x.level - y.level) || String(x.name).localeCompare(String(y.name)));
+    if (!spells.length) { await sheetAlert('Every spell in your spellbook has already been counted toward the library.'); return; }
+    window.__libPick = new Set();
+    const rows = spells.map(s => `<label class="arc-check lib-pick"><input type="checkbox" onchange="window.__libPick[this.checked ? 'add' : 'delete']('${s.id}'); document.getElementById('lib-pick-sum').textContent = [...window.__libPick].reduce((t, id) => t + 100 * (window.__libPickLvl[id] || 0), 0).toLocaleString('en-US') + ' dc';"> ${escapeHtml(s.name)} <span class="sub-caption">${ordinal(clampInt(s.level, 1, 9, 1))} level · +${fmtDc(100 * clampInt(s.level, 1, 9, 1))}</span></label>`).join('');
+    window.__libPickLvl = Object.fromEntries(spells.map(s => [s.id, clampInt(s.level, 1, 9, 1)]));
+    const res = await notesFormModal({
+        title: 'Spells you researched yourself',
+        fields: [],
+        okText: 'Add to library',
+        extraHtml: `<p class="sub-caption arc-note">Tick the spells your character discovered by research (not ones copied, taught or found). Each adds 10% of its research cost, 1,000 dc × level (GAZ3 p. 66). Each spell can be counted only once.</p>
+            <div class="lib-pick-list">${rows}</div>
+            <div class="tally" style="margin-top: 8px;"><span>Adds <strong id="lib-pick-sum">0 dc</strong></span></div>`,
+    });
+    const picked = [...(window.__libPick || [])];
+    delete window.__libPick; delete window.__libPickLvl;
+    if (!res || !picked.length) return;
+    let total = 0;
+    spells.filter(s => picked.includes(s.id)).forEach(s => {
+        const lvl = clampInt(s.level, 1, 9, 1);
+        lib.countedSpells.push(s.id);
+        total += addSpellToLibraryValue(1000 * lvl);
+    });
+    arcanaLog(`Library: ${picked.length} researched spell${picked.length > 1 ? 's' : ''} counted; library value +${fmtDc(total)}.`, { library: true });
+    arcanaSave();
+}
+
 function setLibrary(field, value) {
     const a = arcanaState(); if (!a) return;
     if (field === 'own') a.library.own = Boolean(value);
@@ -776,6 +931,7 @@ function renderResearchRow(p) {
         <div class="tally" style="margin: 8px 0;">
             <span>Cost <strong>${fmtDc(c.cost)}</strong></span>
             <span>Time <strong>${c.days} days</strong></span>
+            ${p.kind === 'spell' && arcanaState().library.own ? (p.libraryAdded ? `<span title="GAZ3 p. 66">Added to library <strong>${fmtDc(p.libraryAdded)}</strong></span>` : `<span title="GAZ3 p. 66: 10% of the gold spent on a discovered spell is added to your library">Library on success <strong>+${fmtDc(Math.round((Number(p.gold) || c.cost) * 0.1))}</strong></span>`) : ''}
             ${wizardXpOn() ? `<span title="GAZ3 p. 60${p.kind !== 'spell' ? ': 1 XP per ducat spent' + ((Number(p.gold) || 0) > 0 ? '' : ' (uses the full cost until you record gold spent)') : ''}">XP <strong>${c.xpSuccess.toLocaleString('en-US')}</strong>${c.xpFail ? ` / failed ${c.xpFail.toLocaleString('en-US')}` : ''}</span>` : ''}
             ${c.chances.map(ch => `<span>${escapeHtml(ch.label)} <strong>${ch.pct}%</strong></span>`).join('')}
         </div>
@@ -819,10 +975,11 @@ function renderResearchCard() {
         </div>
         <div class="arc-fields">
             <label class="arc-check"><input type="checkbox" ${lib.own ? 'checked' : ''} onchange="setLibrary('own', this.checked)"> I own a library</label>
-            ${lib.own ? `<label class="arc-field"><span class="eyebrow">Library value</span><input type="number" min="0" class="stat-input arc-input" value="${Number(lib.value) || 0}" onchange="setLibrary('value', this.value)"></label>` : ''}
+            ${lib.own ? `<label class="arc-field"><span class="eyebrow">${lib.books.length ? 'Other library value (besides the books below)' : 'Library value'}</span><input type="number" min="0" class="stat-input arc-input" value="${Number(lib.value) || 0}" onchange="setLibrary('value', this.value)"></label>` : ''}
         </div>
+        ${lib.own ? renderLibraryBooks(lib) : ''}
         <div class="tally" style="margin: 10px 0;">
-            ${lib.own ? `<span>Supports research up to <strong>${(() => { let L = 0; for (let i = 1; i <= 9; i++) if ((Number(lib.value) || 0) >= libraryMinimum(i)) L = i; return L ? ordinal(L) + ' level' : 'none yet'; })()}</strong></span>` : '<span>Using a public or princely library (no bonus)</span>'}
+            ${lib.own ? `<span>Supports research up to <strong>${(() => { let L = 0; for (let i = 1; i <= 9; i++) if (libraryTotal(lib) >= libraryMinimum(i)) L = i; return L ? ordinal(L) + ' level' : 'none yet'; })()}</strong></span>` : '<span>Using a public or princely library (no bonus)</span>'}
             <span>Book appraisal <strong>${appraisal}%</strong></span>
             <label class="arc-check" title="GAZ3 p. 60: XP for discovering spells and enchanting items"><input type="checkbox" ${wizardXpOn() ? 'checked' : ''} onchange="setWizardXp(this.checked)"> Award GAZ3 wizard XP</label>
             <span>Base chance <strong>(${arcIntScore()} + ${level}) × 2 = ${(arcIntScore() + level) * 2}%</strong></span>
@@ -1128,5 +1285,6 @@ Object.assign(window, {
     forgetCraftAbility, addCraftMasteryXp, toggleCraftUse, resetCraftUses, adjustRunesToday, addCraftBookEntry, deleteCraftBookEntry, addTaughtSpells,
     setSchoolField, startCourse, finishCourseNow, dropCourse, removeCompletedCourse, setCompanionField, toggleSpellCombination,
     addResearchProject, updateResearch, workResearchDay, resolveResearch, reopenResearch, deleteResearch, setLibrary,
+    editLibraryBook, studyLibraryBook, libraryTotal, libraryCanTakeResearch, addResearchedSpellToLibrary, countResearchedSpells,
     setRadianceField, adjustRads, castRetainPower, spendRads, checkRadianceCorruption, toggleRotPart, toggleRadianceSpell, radianceRank,
 });

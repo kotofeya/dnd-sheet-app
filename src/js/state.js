@@ -109,6 +109,21 @@ const PRIME_REQUISITES = {
     'Centaur':        { single: 'strength' },
     'Gnome':          { single: 'dexterity' },
     'Skygnome':       { single: 'dexterity' },
+    // PC1 woodland beings (Table 1): +5% if every prime requisite is 13+, +10% if every one is 16+.
+    'Brownie':        { single: 'dexterity' },
+    'Redcap':         { single: 'dexterity' },
+    'Dryad':          { all: ['wisdom', 'charisma'] },
+    'Faun':           { single: 'dexterity' },
+    'Hsiao':          { single: 'wisdom' },
+    'Leprechaun':     { all: ['intelligence', 'dexterity'] },
+    'Pixie':          { single: 'dexterity' },
+    'Pooka':          { single: 'wisdom' },
+    'Sidhe (Warrior)': { all: ['strength', 'intelligence'] },
+    'Sidhe (Rogue)':  { all: ['intelligence', 'dexterity'] },
+    'Sprite':         { all: ['intelligence', 'dexterity'] },
+    'Treant':         { single: 'constitution' },
+    'Wood Imp':       { single: 'dexterity' },
+    'Woodrake':       { all: ['intelligence', 'dexterity'] },
 };
 
 function getPrimeRequisiteBonus(className, stats) {
@@ -120,6 +135,11 @@ function getPrimeRequisiteBonus(className, stats) {
         const [[key16], [key13]] = rule.both;
         if (score(key16) >= 13 && score(key13) >= 13) return score(key16) >= 16 ? 10 : 5;
         return 0;
+    }
+
+    if (rule.all) {
+        const low = Math.min(...rule.all.map(score));
+        return low >= 16 ? 10 : (low >= 13 ? 5 : 0);
     }
 
     if (rule.dual) {
@@ -341,4 +361,62 @@ window.getXpBonusClass = getXpBonusClass;
 window.getClassOption = getClassOption;
 window.getCreatureStage = getCreatureStage;
 window.getXpTableFor = getXpTableFor;
-window.getThac0TableFor = getThac0TableFor;
+window.getThac0TableFor = getThac0TableFor;
+
+// Windows close when you click on the dark area around them. A click that started inside a
+// window (for example while selecting text in a field) and ended outside it is not such a click:
+// the browser reports it on the backdrop, so it is stopped here before any window can close.
+(function guardBackdropClicks() {
+    let downTarget = null;
+    document.addEventListener('mousedown', e => { downTarget = e.target; }, true);
+    document.addEventListener('click', e => {
+        const t = e.target;
+        if (!downTarget || t === downTarget || !(t instanceof Element)) return;
+        if (!t.contains(downTarget)) return;                       // pressed and released on unrelated places
+        const st = getComputedStyle(t);
+        const isBackdrop = st.position === 'fixed' && t.offsetWidth >= window.innerWidth * 0.9 && t.offsetHeight >= window.innerHeight * 0.9;
+        if (isBackdrop) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+})();
+
+// Lay the tab bar out on one line while it fits comfortably, otherwise in two even rows.
+(function setupTabLayout() {
+    let observer = null;
+    function layoutTabs() {
+        const bar = document.querySelector('.tabs');
+        if (!bar) return;
+        if (observer) observer.disconnect();          // our own measuring must not re-trigger us
+        try { measureAndLay(bar); } finally { if (observer) observer.observe(bar, { attributes: true, subtree: true, attributeFilter: ['style'] }); }
+    }
+    function measureAndLay(bar) {
+        const tabs = [...bar.querySelectorAll('.tab-btn')].filter(t => t.style.display !== 'none');
+        if (!tabs.length) return;
+        bar.classList.remove('tabs-two-rows');
+        // Natural width of every visible tab on a single line.
+        const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+        const needed = tabs.reduce((sum, t) => {
+            const prev = t.style.flex; t.style.flex = '0 0 auto';
+            const w = t.getBoundingClientRect().width;
+            t.style.flex = prev;
+            return sum + w + gap;
+        }, -gap);
+        // Nine or more tabs are too crowded on one line even when they just fit.
+        if (tabs.length >= 9 || needed > bar.clientWidth + 1) {
+            bar.style.setProperty('--tab-cols', String(Math.ceil(tabs.length / 2)));
+            bar.classList.add('tabs-two-rows');
+        }
+    }
+    window.layoutTabs = layoutTabs;
+    function start() {
+        const bar = document.querySelector('.tabs');
+        if (!bar) return;
+        layoutTabs();
+        let pending = false;
+        const soon = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; layoutTabs(); }); };
+        window.addEventListener('resize', soon);
+        observer = new MutationObserver(soon);
+        observer.observe(bar, { attributes: true, subtree: true, attributeFilter: ['style'] });
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(soon);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();

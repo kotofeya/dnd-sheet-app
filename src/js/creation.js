@@ -28,6 +28,8 @@ const CLASS_ADJUSTMENTS = {
     'Gnome':         { up: [], down: [], note: 'PC2 gives gnomes no ability adjustment.' },
     'Skygnome':      { up: [], down: [], note: 'PC2 gives skygnomes no ability adjustment.' },
     'Centaur':       { up: [], down: [], note: 'PC1 gives centaurs no ability adjustment.' },
+    ...Object.fromEntries(['Brownie', 'Dryad', 'Faun', 'Hsiao', 'Leprechaun', 'Pixie', 'Pooka', 'Redcap', 'Sidhe (Rogue)', 'Sidhe (Warrior)',
+        'Sprite', 'Treant', 'Wood Imp', 'Woodrake'].map(c => [c, { up: [], down: [], note: 'PC1 gives woodland beings no ability adjustment; scores above the race maximum are lowered to it.' }])),
 };
 // Compendium: start at the lowest level of the campaign; starting gold is multiplied by it.
 const START_LEVELS = [
@@ -117,6 +119,8 @@ function ccEligibility(cls) {
 }
 function ccPickClass(cls) {
     cc.cls = cls; cc.adjusted = { ...cc.base }; cc.spell = ''; cc.cart = {}; cc.hp = null; cc.gold = null;
+    // PC1 Table 1: a woodland being's scores cannot go above its race's maximum.
+    Object.entries(ccClassInfo(cls)?.maxScores || {}).forEach(([k, max]) => { if (cc.adjusted[k] > max) cc.adjusted[k] = max; });
     // Mystic martial arts need the Unarmed Strikes feat, so it is their first pick (Dark Dungeons, Chapter 4).
     cc.weapons = cls === 'Mystic' ? ['unarmed_strikes'] : [];
     renderCreation();
@@ -162,6 +166,14 @@ function ccCharacterStub() {
     return { characterClass: cc.cls, level: cc.startLevel, abilities, experiencePoints: ccStartXp() };
 }
 function ccIsCreature() { return Array.isArray(ccClassInfo()?.preStages) && ccClassInfo().preStages.length > 0; }
+// GAZ6 p. 16: every dwarf must take Mining and Engineering (two of the starting skill choices).
+function ccStartingSkills() {
+    if (cc.cls !== 'Dwarf' || typeof GENERAL_SKILLS_DATABASE === 'undefined') return [];
+    return ['mining', 'engineering'].filter(k => GENERAL_SKILLS_DATABASE[k]).map(k => ({
+        skillId: k, name: GENERAL_SKILLS_DATABASE[k].name, ability: GENERAL_SKILLS_DATABASE[k].ability, subType: '',
+        desc: GENERAL_SKILLS_DATABASE[k].desc, slots: 1, isCustom: false,
+    }));
+}
 function ccStartXp() {
     const info = ccClassInfo();
     if (!info) return 0;
@@ -176,11 +188,11 @@ function ccRollHp() {
     const dieBonus = Number(info.hpDieBonus) || 0;
     const rolls = []; let total = 0;
     if (Array.isArray(info.hitDiceTable)) {
-        const dice = (cc.startLevel === 1 && ccIsCreature())
-            ? info.preStages.reduce((lo, st) => (st.xp < lo.xp ? st : lo)).dice
-            : (info.hitDiceTable[cc.startLevel] || [1, 0])[0];
+        const first = ccIsCreature() ? info.preStages.reduce((lo, st) => (st.xp < lo.xp ? st : lo)) : null;
+        const dice = (cc.startLevel === 1 && first) ? first.dice : (info.hitDiceTable[cc.startLevel] || [1, 0])[0];
+        const hdDie = (cc.startLevel === 1 && first?.die) ? first.die : die;
         const plus = (cc.startLevel === 1 && ccIsCreature()) ? 0 : ((info.hitDiceTable[cc.startLevel] || [1, 0])[1] || 0);
-        for (let i = 0; i < dice; i++) { const r = ccRoll(die); rolls.push(r); total += Math.max(1, r + con); }
+        for (let i = 0; i < dice; i++) { const r = ccRoll(hdDie); rolls.push(r); total += Math.max(1, r + con); }
         total += plus;
     } else {
         const dice = Math.min(cc.startLevel, 9);
@@ -225,7 +237,8 @@ function ccToggleWeapon(id) {
 function ccDefaultLanguages() {
     return typeof defaultLanguages === 'function' ? defaultLanguages(cc.cls, cc.alignment).join(', ') : `Common, ${cc.alignment}`;
 }
-function ccIsArcane() { return ccClassInfo()?.casterType === 'arcane'; }
+// Fairies (PC1) cast arcane-like spells but keep no spellbook.
+function ccIsArcane() { return ccClassInfo()?.casterType === 'arcane' && !ccClassInfo()?.spellList; }
 
 // --- Equipment shop -----------------------------------------------------------------------------------
 function ccShopItems() {
@@ -430,7 +443,8 @@ function renderCreationBody() {
         </div>
         <label class="arc-field" style="margin-top: 10px;"><span class="eyebrow">Languages</span><input type="text" class="stat-input arc-input" value="${escapeHtml(cc.languages || ccDefaultLanguages())}" oninput="ccSet('languages', this.value)" placeholder="Common, ${escapeHtml(cc.alignment)}..."></label>
         <p class="sub-caption">${escapeHtml(langs)}</p>
-        <p class="sub-caption">After creating: choose ${skills} general skill${skills > 1 ? 's' : ''} on the General Skills tab (4, plus your Intelligence bonus${cc.startLevel > 1 ? ', plus one per four levels' : ''}), and pick a deity on the sheet if your class needs one.</p>`;
+        ${cc.cls === 'Dwarf' ? '<p class="sub-caption">Every dwarf of Rockhome learns Mining and Engineering (GAZ6 p. 16): the sheet adds both, using two of your skill choices. Remove them on the General Skills tab if your dwarf is from elsewhere.</p>' : ''}
+        <p class="sub-caption">After creating: choose ${cc.cls === 'Dwarf' ? `the other ${Math.max(0, skills - 2)}` : skills} general skill${skills > 1 ? 's' : ''} on the General Skills tab (4, plus your Intelligence bonus${cc.startLevel > 1 ? ', plus one per four levels' : ''}), and pick a deity on the sheet if your class needs one.</p>`;
     }
     body.innerHTML = h;
 }
@@ -461,7 +475,7 @@ function finishCreation() {
         abilities, armorClass: 9, thac0: 19, hitPoints: { current: cc.hp, maximum: cc.hp },
         savingThrows: { deathRayPoison: 12, magicWands: 13, paralysisTurnToStone: 14, dragonBreath: 15, rodStaffSpell: 16 },
         coins: { cp: rest % 10, sp: Math.floor(rest / 10), ep: 0, gp, pp: 0 },
-        inventory, weaponFeats: cc.weapons.map(id => ({ weaponId: id, rank: 'B', isEquipped: true })), skills: [], notes: [],
+        inventory, weaponFeats: cc.weapons.map(id => ({ weaponId: id, rank: 'B', isEquipped: true })), skills: ccStartingSkills(), notes: [],
         bio: { gender: cc.gender, homeland: cc.homeland, languages: (cc.languages || '').trim() || ccDefaultLanguages(), personality: cc.concept },
     };
     if (ccIsArcane()) char.spellbook = { knownSpellIds: ['arcane_read_magic', ...(cc.spell ? [cc.spell] : [])], customSpells: [], preparedSpells: {} };

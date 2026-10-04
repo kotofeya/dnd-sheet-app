@@ -70,6 +70,16 @@ function holdingStaffRoles() {
     return roles;
 }
 
+// A listed job is paid its usual wage automatically; only jobs you make up yourself take your own wage.
+function holdingStandardRole(role) {
+    const r = String(role || '').trim().toLowerCase();
+    return r ? holdingStaffRoles().find(x => x[0].toLowerCase() === r) || null : null;
+}
+function staffWage(s) {
+    const std = holdingStandardRole(s && s.role);
+    return std ? std[1] : holdingNum(s && s.wage);
+}
+
 const holdingNum = v => { const n = Number(String(v ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
 const holdingGp = n => (typeof compGp === 'function' ? compGp(n) : `${(Math.round(n * 100) / 100).toLocaleString('en-US')} gp`);
 const holdingSafeId = id => typeof id === 'string' && /^[\w-]+$/.test(id);
@@ -101,10 +111,16 @@ const holdingActive = h => !['lost'].includes(h.status);
 // What a holding costs each month: rent, staff wages and other running costs.
 function holdingMonthly(h) {
     if (!holdingActive(h)) return 0;
-    const staff = (h.staff || []).reduce((s, x) => s + holdingNum(x.wage) * Math.max(0, holdingNum(x.count) || 1), 0);
+    const staff = (h.staff || []).reduce((s, x) => s + staffWage(x) * Math.max(0, holdingNum(x.count) || 1), 0);
     return staff + (h.status === 'rented' ? holdingNum(h.rent) : 0) + holdingNum(h.upkeep);
 }
-function holdingsMonthlyTotal(ch = currentCharacter) { return holdingsState(ch).reduce((s, h) => s + holdingMonthly(h), 0); }
+// Everything paid as household costs each month: homes, and vessels in service (js/vessels.js).
+function householdBills(ch = currentCharacter) {
+    const homes = holdingsState(ch).filter(h => holdingMonthly(h) > 0).map(h => ({ name: h.name, amount: holdingMonthly(h) }));
+    const ships = typeof vesselsMonthlyBills === 'function' ? vesselsMonthlyBills(ch) : [];
+    return [...homes, ...ships];
+}
+function holdingsMonthlyTotal(ch = currentCharacter) { return householdBills(ch).reduce((s, b) => s + b.amount, 0); }
 
 function buildPlanCost(h) {
     const region = BUILD_REGIONS.find(r => r.id === h.build.region) || BUILD_REGIONS[0];
@@ -142,11 +158,14 @@ function renderHoldings() {
             <span>Costs <strong>${holdingGp(monthly)}</strong> / month${paidThisMonth ? ' <span class="tag" style="color: var(--good);">paid</span>' : ''}</span>
         </div>
         <div class="arc-actions" style="margin: 8px 0 0;">
-            <button type="button" class="btn btn-sm btn-accent" onclick="payHoldingCosts()" ${monthly ? '' : 'disabled'} title="Wages, rent and running costs of every home, from your purse">Pay this month's household costs</button>
+            <button type="button" class="btn btn-sm btn-accent" onclick="payHoldingCosts()" ${monthly ? '' : 'disabled'} title="Wages, rent and running costs of every home">Pay this month's household costs</button>
+            ${paySourceSelect()}
+            ${cal ? `<label class="arc-check" title="When the calendar reaches a new month, wages and household costs are paid by themselves from the chosen money (for every month that passed)"><input type="checkbox" ${calendarState().settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay automatically each month</label>` : ''}
         </div>
     </div>`;
     root.innerHTML = summary + (list.length ? list.map(holdingCard).join('') : `<div class="card"><div class="ledger-note">No homes yet. Add the inn room you rent, the tower you inherited or the house you plan to build.</div></div>`)
         + `<div class="arc-source">Dark Dungeons Chapter 8: Table 8-8 (buildings), Table 8-10 (specialists) · Rules Cyclopedia Chapter 11 (strongholds)</div>`;
+    if (typeof renderVessels === 'function') { try { renderVessels(); } catch (e) { console.error(e); } }
 }
 
 function holdingCard(h) {
@@ -170,11 +189,11 @@ function holdingCard(h) {
     }
     const staffHtml = h.staff.length ? h.staff.map(s => {
         const n = Math.max(0, holdingNum(s.count)) || 1;
-        return `<div class="hold-line"><button type="button" class="link-btn" onclick="openHoldingStaffEditor('${h.id}', '${s.id}')">${n > 1 ? `${n} × ` : ''}${escapeHtml(s.role || 'Worker')}</button>${s.name ? ` <span class="sub-caption">${escapeHtml(s.name)}</span>` : ''}<span class="hold-amount">${holdingNum(s.wage) ? `${holdingGp(holdingNum(s.wage) * n)} / month` : 'unpaid'}</span></div>`;
+        return `<div class="hold-line"><button type="button" class="link-btn" onclick="openHoldingStaffEditor('${h.id}', '${s.id}')">${n > 1 ? `${n} × ` : ''}${escapeHtml(s.role || 'Worker')}</button>${s.name ? ` <span class="sub-caption">${escapeHtml(s.name)}</span>` : ''}<span class="hold-amount" title="${holdingStandardRole(s.role) ? 'Usual pay for this job' : 'Your own wage'}">${staffWage(s) ? `${holdingGp(staffWage(s) * n)} / month` : 'unpaid'}</span></div>`;
     }).join('') : '<div class="ledger-note">No staff.</div>';
     const compHtml = comps.length ? `<div class="hold-sub">Companions stationed here: ${comps.map(c => `<button type="button" class="link-btn" onclick="switchTab('tab-companions'); setTimeout(() => openCompanionEditor('${c.id}'), 50)">${escapeHtml(c.name || 'Companion')}</button>`).join(', ')} <span class="sub-caption">(paid on the Companions tab)</span></div>` : '';
     const lib = currentCharacter.arcana?.library;
-    const roomsHtml = h.rooms.length ? h.rooms.map(r => `<div class="hold-line"><button type="button" class="link-btn" onclick="openHoldingRoomEditor('${h.id}', '${r.id}')">${escapeHtml(r.name || 'Room')}</button>${r.notes ? ` <span class="sub-caption">${escapeHtml(r.notes)}</span>` : ''}${/^library/i.test(r.name || '') && lib && lib.own ? ` <span class="tag" title="Your research library on the Arcana tab">research library ${escapeHtml(String(lib.value || 0))} dc</span>` : ''}<span class="hold-amount">${holdingNum(r.value) ? holdingGp(holdingNum(r.value)) : ''}</span></div>`).join('') : '<div class="ledger-note">No rooms or features noted.</div>';
+    const roomsHtml = h.rooms.length ? h.rooms.map(r => `<div class="hold-line"><button type="button" class="link-btn" onclick="openHoldingRoomEditor('${h.id}', '${r.id}')">${escapeHtml(r.name || 'Room')}</button>${r.notes ? ` <span class="sub-caption">${escapeHtml(r.notes)}</span>` : ''}${/^library/i.test(r.name || '') && lib && lib.own ? ` <span class="tag" title="Your research library on the Arcana tab">research library ${escapeHtml(String(typeof libraryTotal === 'function' ? libraryTotal(lib) : (lib.value || 0)))} dc${lib.books && lib.books.length ? `, ${lib.books.length} book${lib.books.length > 1 ? 's' : ''}` : ''}</span>` : ''}<span class="hold-amount">${holdingNum(r.value) ? holdingGp(holdingNum(r.value)) : ''}</span></div>`).join('') : '<div class="ledger-note">No rooms or features noted.</div>';
     const itemsHtml = items.length ? items.slice(0, 12).map(it => `${escapeHtml(it.name)}${Number(it.qty) > 1 ? ` ×${Number(it.qty)}` : ''}`).join(', ') + (items.length > 12 ? `, and ${items.length - 12} more` : '') : '<span class="ledger-note">Nothing stored. Set an item\'s location to this home on the Inventory tab.</span>';
     const facts = [type.label, h.location, h.status === 'rented' && holdingNum(h.rent) ? `rent ${holdingGp(holdingNum(h.rent))} / month` : '', holdingNum(h.value) ? `worth ${holdingGp(holdingNum(h.value))}` : ''].filter(Boolean);
     return `
@@ -254,23 +273,25 @@ async function openHoldingStaffEditor(hid, sid = null) {
     if (!h) return;
     const s = sid ? h.staff.find(x => x.id === sid) : null;
     const roles = holdingStaffRoles();
-    const res = await notesFormModal({
+    const pending = notesFormModal({
         title: s ? (s.role || 'Staff') : `Staff for ${h.name}`, canDelete: !!s,
         values: s ? { ...s } : { count: '1' },
         fields: [
             { key: 'role', label: 'Job', placeholder: 'e.g. Steward', list: roles.map(r => r[0]) },
             { key: 'count', label: 'How many', placeholder: '1' },
-            { key: 'wage', label: 'Wage each (gp / month)', placeholder: 'empty: the usual pay for the job' },
+            { key: 'wage', label: 'Wage each (gp / month)', placeholder: 'your own wage for this job' },
             { key: 'name', label: 'Names', max: 120, placeholder: 'e.g. Old Marta, the twins Pell and Tobb' },
             { key: 'notes', label: 'Notes', type: 'textarea', wide: true, rows: 3, placeholder: 'Loyalty, duties, quirks...' },
         ],
-        extraHtml: `<details class="arc-rules"><summary>Usual monthly pay</summary><p class="sub-caption">${roles.map(([n, c]) => `${escapeHtml(n)} ${c.toLocaleString('en-US')} gp`).join(' · ')}</p></details>`,
+        extraHtml: `<span id="staff-form-marker" hidden></span><p class="sub-caption" id="staff-wage-note"></p><details class="arc-rules"><summary>Usual monthly pay</summary><p class="sub-caption">${roles.map(([n, c]) => `${escapeHtml(n)} ${c.toLocaleString('en-US')} gp`).join(' · ')}</p></details>`,
     });
+    syncStaffWageField();
+    const res = await pending;
     if (res === null) return;
     if (res === '__delete__') { h.staff = h.staff.filter(x => x.id !== s.id); holdingsLog(`${h.name}: ${s.role || 'staff'} dismissed.`); holdingsSave(); return; }
     const role = res.role || 'Worker';
-    const usual = roles.find(r => r[0].toLowerCase() === role.toLowerCase());
-    const out = { ...res, role, count: Math.max(1, holdingNum(res.count) || 1), wage: res.wage === '' ? (usual ? usual[1] : 0) : holdingNum(res.wage) };
+    const usual = holdingStandardRole(role);
+    const out = { ...res, role, count: Math.max(1, holdingNum(res.count) || 1), wage: usual ? usual[1] : holdingNum(res.wage) };
     if (s) Object.assign(s, out);
     else { h.staff.push({ id: holdingId('staff'), ...out }); holdingsLog(`${h.name}: hired ${out.count > 1 ? out.count + ' × ' : ''}${role}${out.wage ? ` at ${holdingGp(out.wage)} a month${out.count > 1 ? ' each' : ''}` : ''}.`); }
     holdingsSave();
@@ -323,9 +344,9 @@ async function openBuildPlanner(hid) {
     if (!plan.cost) return;
     const text = `${h.name}: ${holdingGp(plan.cost)} (${plan.region.label.split(' (')[0].toLowerCase()}), ${plan.days} days of work, ${plan.engineers} engineer${plan.engineers > 1 ? 's' : ''} on site.`;
     if (already || typeof calendarState !== 'function') { await sheetAlert(text); return; }
-    const start = await sheetDialog(`${text}\n\nStart building today? The cost is taken from your purse and the calendar counts the days.`, { confirm: true, okText: 'Start building', cancelText: 'Just keep the plan' });
+    const start = await sheetDialog(`${text}\n\nStart building today? The cost is paid from your ${paySourceLabel(monthlyPaySource())} and the calendar counts the days.`, { confirm: true, okText: 'Start building', cancelText: 'Just keep the plan' });
     if (!start) return;
-    if (!(await holdingsPay(plan.cost))) return;
+    if (!(await holdingsPay(plan.cost, monthlyPaySource()))) return;
     const cal = calendarState();
     h.build.startT = cal.t; h.build.days = plan.days;
     h.status = 'building';
@@ -346,33 +367,81 @@ function finishHoldingConstruction(hid) {
 
 // ---------------------------------------------------------------------------
 // Money
-function holdingsPurse() {
-    const c = currentCharacter.coins || {};
+// Money for bills can come from the carried purse, the vault, or both (calendar option paySource).
+const PAY_SOURCES = [
+    ['purse', 'Purse'], ['vault', 'Vault'], ['vaultFirst', 'Vault, then purse'], ['purseFirst', 'Purse, then vault'],
+];
+function coinsValue(c) {
+    c = c || {};
     return (Number(c.pp) || 0) * 5 + (Number(c.gp) || 0) + (Number(c.ep) || 0) / 2 + (Number(c.sp) || 0) / 10 + (Number(c.cp) || 0) / 100;
 }
-async function holdingsPay(total) {
-    const coins = currentCharacter.coins || (currentCharacter.coins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 });
-    if (holdingsPurse() + 1e-9 < total) { await sheetAlert(`Your purse holds only ${holdingGp(holdingsPurse())}, and ${holdingGp(total)} is needed. Move money from the vault first.`); return false; }
-    let due = Math.round(total * 100);
+function holdingsPurse() { return coinsValue(currentCharacter.coins); }
+function holdingsVault() { return coinsValue(currentCharacter.vaultCoins); }
+function monthlyPaySource() {
+    const s = typeof calendarState === 'function' ? calendarState()?.settings?.paySource : null;
+    return PAY_SOURCES.some(p => p[0] === s) ? s : 'purse';
+}
+function paySourceLabel(src) { return (PAY_SOURCES.find(p => p[0] === src) || PAY_SOURCES[0])[1].toLowerCase(); }
+function paySourceWallets(src) {
+    const ch = currentCharacter;
+    if (!ch.coins) ch.coins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+    if (!ch.vaultCoins) ch.vaultCoins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+    return src === 'vault' ? [ch.vaultCoins] : src === 'vaultFirst' ? [ch.vaultCoins, ch.coins] : src === 'purseFirst' ? [ch.coins, ch.vaultCoins] : [ch.coins];
+}
+function paySourceFunds(src) { return paySourceWallets(src).reduce((s, w) => s + coinsValue(w), 0); }
+// Take up to `due` copper from one wallet (gold first, change given back); returns what is still owed.
+function spendCoins(coins, due) {
     const value = { pp: 500, gp: 100, ep: 50, sp: 10, cp: 1 };
+    const have = Math.round(coinsValue(coins) * 100);
+    if (have <= due) { ['pp', 'gp', 'ep', 'sp', 'cp'].forEach(k => { coins[k] = 0; }); return due - have; }
     for (const k of ['gp', 'pp', 'ep', 'sp', 'cp']) {
-        const have = Number(coins[k]) || 0;
-        const use = Math.min(have, Math.ceil(due / value[k]));
-        coins[k] = have - use; due -= use * value[k];
+        const n = Number(coins[k]) || 0;
+        const use = Math.min(n, Math.ceil(due / value[k]));
+        coins[k] = n - use; due -= use * value[k];
         if (due <= 0) break;
     }
     if (due < 0) { let change = -due; for (const k of ['gp', 'sp', 'cp']) { const n = Math.floor(change / value[k]); coins[k] = (Number(coins[k]) || 0) + n; change -= n * value[k]; } }
+    return 0;
+}
+async function holdingsPay(total, src = 'purse') {
+    const funds = paySourceFunds(src);
+    if (funds + 1e-9 < total) {
+        const where = src === 'purse' ? 'Your purse holds' : src === 'vault' ? 'Your vault holds' : 'Your purse and vault together hold';
+        await sheetAlert(`${where} only ${holdingGp(funds)}, and ${holdingGp(total)} is needed.${src === 'purse' ? ' Move money from the vault first, or choose to pay bills from the vault.' : ''}`);
+        return false;
+    }
+    let due = Math.round(total * 100);
+    for (const w of paySourceWallets(src)) { if (due <= 0) break; due = spendCoins(w, due); }
     if (typeof syncInventoryUI === 'function') { try { syncInventoryUI(); } catch (e) { console.error(e); } }
     return true;
 }
+function setPaySource(src) {
+    if (typeof calendarState !== 'function') return;
+    calendarState().settings.paySource = PAY_SOURCES.some(p => p[0] === src) ? src : 'purse';
+    if (typeof debouncedSave === 'function') debouncedSave();
+    if (typeof renderCompanions === 'function') { try { renderCompanions(); } catch (e) { console.error(e); } }
+    renderHoldings();
+}
+function paySourceSelect() {
+    if (typeof calendarState !== 'function') return '';
+    const cur = monthlyPaySource();
+    return `<label class="arc-check" title="Where wages, household costs and building costs are paid from">Pay from <select class="stat-input arc-input pay-source" onchange="setPaySource(this.value)">${PAY_SOURCES.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+}
+window.setPaySource = setPaySource;
+
 async function payHoldingCosts() {
-    const list = holdingsState().filter(h => holdingMonthly(h) > 0);
-    const total = list.reduce((s, h) => s + holdingMonthly(h), 0);
-    if (!total) return;
-    const lines = list.map(h => `${h.name}: ${holdingGp(holdingMonthly(h))}`).join('\n');
-    if (!(await sheetConfirm(`Pay a month of household costs, ${holdingGp(total)} in all, from your purse?\n\n${lines}`, 'Pay'))) return;
-    if (!(await holdingsPay(total))) return;
-    holdingsLog(`Paid a month of household costs: ${holdingGp(total)} (${list.map(h => h.name).join(', ')}).`, { spent: total });
+    const list = householdBills();
+    const perMonth = list.reduce((s, b) => s + b.amount, 0);
+    if (!perMonth) return;
+    // Every month since the last payment is owed (at least the current one).
+    const cal = typeof calendarState === 'function' ? calendarState() : null;
+    const months = cal ? Math.max(1, calParts(cal.t).monthAbs - (cal.holdingsMonth ?? calParts(cal.t).monthAbs)) : 1;
+    const total = perMonth * months;
+    const lines = list.map(b => `${b.name}: ${holdingGp(b.amount)}`).join('\n');
+    const what = months > 1 ? `${months} months of household costs (unpaid since then)` : 'a month of household costs';
+    if (!(await sheetConfirm(`Pay ${what}, ${holdingGp(total)} in all, from your ${paySourceLabel(monthlyPaySource())}?\n\nEach month:\n${lines}`, 'Pay'))) return;
+    if (!(await holdingsPay(total, monthlyPaySource()))) return;
+    holdingsLog(`Paid ${what.replace(' (unpaid since then)', '')}: ${holdingGp(total)} (${list.map(h => h.name).join(', ')}).`, { spent: total, months });
     if (typeof calendarState === 'function') { calendarState().holdingsMonth = calParts(calendarState().t).monthAbs; if (typeof renderGameClock === 'function') renderGameClock(); }
     holdingsSave();
 }
@@ -385,7 +454,8 @@ function holdingsDue() {
     const due = [];
     if (c.holdingsMonth === undefined) c.holdingsMonth = p.monthAbs;      // bills start with the next month
     const total = holdingsMonthlyTotal();
-    if (total > 0 && c.holdingsMonth < p.monthAbs) due.push({ text: `Household costs for ${CAL_MONTHS[p.month]}: ${holdingGp(total)}`, tab: 'tab-holdings' });
+    const hMonths = p.monthAbs - c.holdingsMonth;
+    if (total > 0 && hMonths > 0) due.push({ text: hMonths > 1 ? `Household costs owed for ${hMonths} months: ${holdingGp(total * hMonths)}` : `Household costs for ${CAL_MONTHS[p.month]}: ${holdingGp(total)}`, tab: 'tab-holdings' });
     holdingsState().forEach(h => { const f = buildFinishT(h); if (h.status === 'building' && f !== null && f <= c.t) due.push({ text: `${h.name}: construction finished`, tab: 'tab-holdings' }); });
     return due;
 }
@@ -396,6 +466,26 @@ function holdingHomeField() {
     if (!homes.length) return [];
     return [{ key: 'home', label: 'Stationed at', type: 'select', options: [{ value: '', label: 'With you / elsewhere' }, ...homes.map(h => ({ value: h.id, label: h.name }))] }];
 }
+
+// In the staff form: a listed job fills in (and locks) its usual wage as you type it.
+function syncStaffWageField() {
+    if (!document.getElementById('staff-form-marker')) return;
+    const role = document.getElementById('nf-role'), wage = document.getElementById('nf-wage'), note = document.getElementById('staff-wage-note');
+    if (!role || !wage) return;
+    const std = holdingStandardRole(role.value);
+    if (std) {
+        if (!wage.readOnly) wage.dataset.own = wage.value;
+        wage.value = String(std[1]); wage.readOnly = true; wage.classList.add('wage-auto');
+        if (note) note.textContent = `${std[0]}: paid the usual ${holdingGp(std[1])} a month automatically.`;
+    } else {
+        if (wage.readOnly) wage.value = wage.dataset.own || '';
+        wage.readOnly = false; wage.classList.remove('wage-auto');
+        if (note) note.textContent = role.value.trim() ? 'A job of your own: set its wage yourself.' : '';
+    }
+}
+document.addEventListener('input', e => { if (e.target && e.target.id === 'nf-role') syncStaffWageField(); });
+document.addEventListener('change', e => { if (e.target && e.target.id === 'nf-role') syncStaffWageField(); });
+window.staffWage = staffWage;
 
 window.renderHoldings = renderHoldings;
 window.openHoldingEditor = openHoldingEditor;

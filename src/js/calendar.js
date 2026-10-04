@@ -118,7 +118,8 @@ function calendarDue() {
     const p = calParts(c.t);
     const due = [];
     const wages = typeof monthlyCost === 'function' && Array.isArray(ch.companions) ? ch.companions.reduce((s, x) => s + monthlyCost(x), 0) : 0;
-    if (wages > 0 && (c.wagesMonth === undefined || c.wagesMonth < p.monthAbs)) due.push({ text: `Wages for ${CAL_MONTHS[p.month]}: ${wages.toLocaleString('en-US')} gp`, tab: 'tab-companions' });
+    const wMonths = c.wagesMonth === undefined ? 1 : p.monthAbs - c.wagesMonth;
+    if (wages > 0 && wMonths > 0) due.push({ text: wMonths > 1 ? `Wages owed for ${wMonths} months: ${(wages * wMonths).toLocaleString('en-US')} gp` : `Wages for ${CAL_MONTHS[p.month]}: ${wages.toLocaleString('en-US')} gp`, tab: 'tab-companions' });
     if (ch.dominion?.has && (c.dominionMonth === undefined || c.dominionMonth < p.monthAbs)) due.push({ text: 'Dominion accounts for the month', tab: 'tab-dominion' });
     const tr = ch.weaponTraining?.active;
     if (tr) {
@@ -195,6 +196,9 @@ async function advanceTime(secs, opts = {}) {
         }
     }
     if (typeof renderBirthday === 'function') { try { renderBirthday(); } catch (e) { console.error(e); } }
+    // Monthly bills paid by themselves (option): one charge for each month that began.
+    const autoPaid = c.settings.autoPay ? autoPayMonthly(after) : [];
+    notes.push(...autoPaid);
     if (opts.recoverSpells && typeof getCasterProfiles === 'function' && typeof restSpellbook === 'function') {
         const profiles = getCasterProfiles(ch) || [];
         if (profiles.length) { profiles.forEach(pr => { try { restSpellbook(pr.key); } catch (e) { console.error(e); } }); notes.push('spells recovered'); }
@@ -209,8 +213,38 @@ async function advanceTime(secs, opts = {}) {
     // New alerts: timers that ran out, a new month's bills, holidays reached.
     if (opts.quiet) return;
     const fresh = calendarDue().filter(d => !dueBefore.has(d.text)).map(d => d.text);
+    autoPaid.forEach(t => fresh.push(t.charAt(0).toUpperCase() + t.slice(1)));
     if (after.dayAbs !== before.dayAbs) holidaysOn(after.month, after.day, after.year).forEach(h => fresh.push(`Today: ${h.name}`));
     if (fresh.length && typeof sheetAlert === 'function') await sheetAlert(`${calDateText(after)}\n\n${fresh.map(f => '• ' + f).join('\n')}`);
+}
+
+// Wages and household costs for each new month, from the purse. Returns lines for the log.
+function autoPayMonthly(now) {
+    const ch = currentCharacter, c = calendarState(), out = [];
+    if (typeof holdingsPay !== 'function' || typeof paySourceFunds !== 'function') return out;
+    const src = monthlyPaySource();
+    const fmt = n => `${(Math.round(n * 100) / 100).toLocaleString('en-US')} gp`;
+    const bill = (monthKey, perMonth, what, logFn, names) => {
+        if (c[monthKey] === undefined) { c[monthKey] = now.monthAbs; return; }
+        const months = now.monthAbs - c[monthKey];
+        if (months <= 0 || !(perMonth > 0)) { if (months > 0 && !(perMonth > 0)) c[monthKey] = now.monthAbs; return; }
+        const total = perMonth * months;
+        const label = months > 1 ? `${months} months of ${what}` : `${what} for ${CAL_MONTHS[now.month]}`;
+        if (paySourceFunds(src) + 1e-9 < total) { out.push(`could not pay ${label} (${fmt(total)}): not enough in the ${src === 'purse' ? 'purse' : src === 'vault' ? 'vault' : 'purse and vault'}`); return; }
+        holdingsPay(total, src);      // enough money, so this never stops to ask
+        c[monthKey] = now.monthAbs;
+        out.push(`paid ${label}: ${fmt(total)}`);
+        if (typeof logFn === 'function') logFn(`Paid automatically from the ${paySourceLabel(src)}: ${label}, ${fmt(total)}${names ? ` (${names})` : ''}.`, { spent: total, auto: true });
+    };
+    const comps = Array.isArray(ch.companions) && typeof monthlyCost === 'function' ? ch.companions.filter(x => monthlyCost(x) > 0) : [];
+    bill('wagesMonth', comps.reduce((s, x) => s + monthlyCost(x), 0), 'wages', typeof compLog === 'function' ? compLog : null, comps.map(x => x.name).join(', '));
+    const homes = typeof householdBills === 'function' ? householdBills() : [];
+    bill('holdingsMonth', homes.reduce((s, b) => s + b.amount, 0), 'household costs', typeof holdingsLog === 'function' ? holdingsLog : null, homes.map(b => b.name).join(', '));
+    if (out.length) {
+        if (typeof renderCompanions === 'function') { try { renderCompanions(); } catch (e) { console.error(e); } }
+        if (typeof renderHoldings === 'function') { try { renderHoldings(); } catch (e) { console.error(e); } }
+    }
+    return out;
 }
 
 async function quickAdvance(kind) {
@@ -367,6 +401,8 @@ function renderCalendarModal() {
                 <div class="cal-list"><span class="eyebrow eyebrow-strong">Options</span>
                     <label class="arc-check"><input type="checkbox" ${c.settings.heal ? 'checked' : ''} onchange="setCalendarSetting('heal', this.checked)"> Heal naturally each day (1 hp, 2 if resting)</label>
                     <label class="arc-check"><input type="checkbox" ${c.settings.age ? 'checked' : ''} onchange="setCalendarSetting('age', this.checked)"> Add a year to the character's age on their birthday (1 Nuwmont if no birthday is set)</label>
+                    <label class="arc-check"><input type="checkbox" ${c.settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay wages and household costs automatically when a new month begins</label>
+                    ${typeof paySourceSelect === 'function' ? paySourceSelect() : ''}
                     <label class="arc-check"><input type="checkbox" ${c.settings.shadowElf ? 'checked' : ''} onchange="setCalendarSetting('shadowElf', this.checked)"> Show the shadow elf date on the calendar bar</label>
                     ${typeof activeParty === 'function' ? '<button type="button" class="btn btn-sm" onclick="shareDateWithParty()" title="Set every party member\'s calendar to this date and time">Share this date with the party</button>' : ''}
                 </div>
@@ -429,6 +465,10 @@ function setCalendarSetting(key, value) {
     calendarState().settings[key] = !!value;
     if (typeof debouncedSave === 'function') debouncedSave();
     renderGameClock();
+    if (key === 'autoPay') {
+        if (typeof renderCompanions === 'function') { try { renderCompanions(); } catch (e) { console.error(e); } }
+        if (typeof renderHoldings === 'function') { try { renderHoldings(); } catch (e) { console.error(e); } }
+    }
 }
 async function addCalendarTimer() {
     const res = await notesFormModal({

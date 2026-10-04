@@ -16,7 +16,7 @@ function getHpFormula(character) {
     if (Array.isArray(classInfo?.hitDiceTable)) {
         const stage = (typeof window.getCreatureStage === 'function') ? window.getCreatureStage(character) : null;
         const [dice, plus] = stage ? [stage.dice, 0] : (classInfo.hitDiceTable[lvl] || [1, 0]);
-        let f = `${dice}d${hdSize}${plus ? ` + ${plus}` : ''}`;
+        let f = `${dice}d${stage?.die || hdSize}${plus ? ` + ${plus}` : ''}`;
         const con = conMod * dice;                          // Con applies to Hit Dice only
         if (con !== 0) f += ` (${con > 0 ? '+' : ''}${con} Con)`;
         return f;
@@ -87,7 +87,9 @@ function updateCombatVitals() {
     }
 
     const dexMod = Number(char.abilities?.dexterity?.modifier) || 0;
-    const baseArmor = Number(document.getElementById('ac-base')?.value) || 9;
+    const baseArmorRaw = document.getElementById('ac-base')?.value;
+    // AC 0 is a real armour class (suit armour, magic), so only an empty or bad value falls back to 9.
+    const baseArmor = (baseArmorRaw === '' || baseArmorRaw == null || !Number.isFinite(Number(baseArmorRaw))) ? 9 : Number(baseArmorRaw);
     const totalAC = baseArmor - dexMod;
 
     window.safeSetVal('combat-ac', totalAC);
@@ -104,6 +106,14 @@ function updateCombatVitals() {
     const totalInit = dexMod + initBonus;
     window.safeSetText('init-total', totalInit >= 0 ? `+${totalInit}` : `${totalInit}`);
 
+    // The load follows what is carried and the class's own table (centaurs move faster), so a
+    // class change shows the right speed at once, not only after the Inventory tab is opened.
+    const loadSel = document.getElementById('movement-load');
+    if (loadSel && typeof syncMovementLoadOptions === 'function' && typeof calculateCarriedWeight === 'function' && typeof getEncumbranceTier === 'function') {
+        syncMovementLoadOptions(char);
+        const tier = getEncumbranceTier(calculateCarriedWeight(char), char);
+        if (tier) loadSel.value = String(tier.speed);
+    }
     // 0 is a real speed (immobile), so only an empty value falls back to 120'.
     const rawSpeed = document.getElementById('movement-load')?.value;
     const baseTurnSpeed = (rawSpeed === '' || rawSpeed == null) ? 120 : Number(rawSpeed);
@@ -119,6 +129,20 @@ function updateCombatVitals() {
     window.safeSetText('speed-explore', `${turnSpeed}'`);
     window.safeSetText('speed-encounter', `${encounterSpeed}'`);
     window.safeSetText('speed-running', `${turnSpeed}'`);
+
+    // Flyers (PC1 Table 18a: hsiao, pixie, sprite, woodrake in drake form): flying speed by load.
+    const flyTable = window.ClassesDatabase[char.characterClass]?.flyingTable;
+    const flyEl = document.getElementById('speed-fly');
+    if (flyEl) {
+        if (Array.isArray(flyTable) && flyTable.length && typeof calculateCarriedWeight === 'function') {
+            const row = flyTable.find(r => calculateCarriedWeight(char) <= r.max);
+            flyEl.textContent = !row ? 'Too heavy to fly'
+                : `Flying ${row.speed}' (${row.speed / 3}')` + (row === flyTable[0] ? '' : ' · rest 1 turn after every 3');
+            flyEl.style.display = '';
+        } else {
+            flyEl.style.display = 'none';
+        }
+    }
 }
 
 function getAttacksPerRound(className, level, character) {
@@ -126,6 +150,11 @@ function getAttacksPerRound(className, level, character) {
     const option = (character && typeof window.getClassOption === 'function') ? window.getClassOption(character) : null;
     if (option && option.noCombatOptions) return { count: 1, note: "Standard" };   // Shadow Shaman
     if (className === 'Centaur') return { count: 3, note: "weapon + 2 hooves (1d6 each)" };   // PC1
+    // PC1 woodland beings with claws or limbs (hsiao, treant, woodrake in drake form), by stage while growing.
+    const natInfo = window.ClassesDatabase[className] || {};
+    const natStage = (character && typeof window.getCreatureStage === 'function') ? window.getCreatureStage(character) : null;
+    const natural = natStage?.attacks || natInfo.naturalAttacks;
+    if (natural) return { count: natural.count, note: natural.note, natural: true };
     if (className === 'Mystic') {
         if (lvl >= 13) return { count: 4, note: "Strike to Kill (Unarmed)" };
         if (lvl >= 9)  return { count: 3, note: "Strike to Kill (Unarmed)" };
@@ -207,7 +236,14 @@ function renderCombatManoeuvres() {
         });
     }
 
-    if (attackInfo.count > 1 && className !== 'Mystic' && className !== 'Centaur') {
+    if (attackInfo.natural) {
+        manoeuvres.push({
+            name: "Natural Attacks", tag: "Natural Attack",
+            desc: `${attackInfo.count} attacks a round: ${attackInfo.note}. Strength bonuses apply.`
+        });
+    }
+
+    if (attackInfo.count > 1 && className !== 'Mystic' && className !== 'Centaur' && !attackInfo.natural) {
         const kinds = ['a normal attack', 'a throw'];
         if (canLance) kinds.push('a lance attack');
         if (canDisarm) kinds.push('a disarm');

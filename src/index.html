@@ -83,7 +83,21 @@
                             <option value="Shadow Elf">Shadow Elf</option>
                         </optgroup>
                         <optgroup label="PC1 Tall Tales of the Wee Folk">
+                            <option value="Brownie">Brownie</option>
                             <option value="Centaur">Centaur</option>
+                            <option value="Dryad">Dryad</option>
+                            <option value="Faun">Faun</option>
+                            <option value="Hsiao">Hsiao</option>
+                            <option value="Leprechaun">Leprechaun</option>
+                            <option value="Pixie">Pixie</option>
+                            <option value="Pooka">Pooka</option>
+                            <option value="Redcap">Redcap</option>
+                            <option value="Sidhe (Rogue)">Sidhe (Rogue)</option>
+                            <option value="Sidhe (Warrior)">Sidhe (Warrior)</option>
+                            <option value="Sprite">Sprite</option>
+                            <option value="Treant">Treant</option>
+                            <option value="Wood Imp">Wood Imp</option>
+                            <option value="Woodrake">Woodrake</option>
                         </optgroup>
                         <optgroup label="PC2 Top Ballista">
                             <option value="Gnome">Gnome</option>
@@ -388,9 +402,10 @@
                         <span class="eyebrow">Movement</span>
                         <div id="speed-explore" class="big">120'</div>
                         <span class="sub"><span id="speed-encounter">40'</span> a round · <span id="speed-running">120'</span> running</span>
+                        <span class="sub" id="speed-fly" style="display: none;"></span>
                         <div class="detail">
                             <label for="movement-load">Load</label>
-                            <select id="movement-load" class="stat-input" style="font-size: 0.9rem; width: auto; border: 1px solid var(--border-color); padding: 2px 4px; background: var(--field-bg);">
+                            <select id="movement-load" class="stat-input" style="font-size: 0.9rem; width: auto; min-width: 0; max-width: 100%; flex: 0 1 auto; border: 1px solid var(--border-color); padding: 2px 4px; background: var(--field-bg);">
                                 <option value="120">Unencumbered (120')</option>
                                 <option value="90">Light Load (90')</option>
                                 <option value="60">Heavy Load (60')</option>
@@ -505,6 +520,7 @@
         <!-- HOLDINGS: homes, towers, shops outside a dominion (js/holdings.js) -->
         <div id="tab-holdings" class="tab-content">
             <div id="holdings-root"></div>
+            <div id="vessels-root"></div>
         </div>
 
         <div id="tab-dominion" class="tab-content">
@@ -518,6 +534,7 @@
                     <h2>General Skills</h2>
                     <div class="panel-head-tools">
                         <span class="tally">Slots <span>Total <strong id="skills-total-badge">4</strong></span><span>Spent <strong id="skills-spent-badge">0</strong></span><span>Left <strong id="skills-avail-badge">4</strong></span><span title="Ranks granted for free (race, class, background, DM award): they use no slots">Granted <strong id="skills-granted-badge">0</strong></span></span>
+                        <label class="spell-sort">Sort <select id="skill-sort" class="stat-input" onchange="setSkillSort(this.value)" aria-label="Sort skills"></select></label>
                         <button type="button" class="btn btn-sm btn-accent" onclick="openAddSkillModal()">+ Learn Skill</button>
                     </div>
                 </div>
@@ -754,10 +771,14 @@
                         <option value="weight">Weight (heaviest first)</option>
                         <option value="value">Value (highest first)</option>
                         <option value="location">Where it is carried</option>
-                        <option value="trade">For trade first</option>
                     </select>
                 </label>
-                <label class="inv-tool inv-tool-check"><input type="checkbox" id="inv-trade-only" onchange="setInventoryTradeOnly(this.checked)"> Show only items for trade</label>
+                <div class="inv-tool">Show
+                    <details id="inv-show" class="inv-show-dd"><summary class="stat-input">All items</summary></details>
+                </div>
+                <label class="inv-tool" title="Moves every weapon, magic item and piece of gear listed under the current Show filter">Move shown to
+                    <select id="inv-move-all" class="stat-input" onchange="moveShownItems(this.value, this)"><option value="">Choose a place…</option></select>
+                </label>
                 <span id="inv-trade-summary" class="inv-trade-summary"></span>
             </div>
 
@@ -814,6 +835,7 @@
                     <div style="display: flex; gap: 6px;">
                         <button type="button" onclick="openCatalogue('magic')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Catalogue</button>
                         <button type="button" onclick="openCatalogue('forge')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Magic forge</button>
+                        <button type="button" onclick="openAddItemModal('equipment', { magic: true })" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">+ Custom magic item</button>
                     </div>
                 </div>
                 <div id="magic-items-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
@@ -997,7 +1019,7 @@
     <!-- МОДАЛЬНОЕ ОКНО ДЛЯ СОЗДАНИЯ ЗАКЛИНАНИЯ -->
     <div id="custom-spell-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
         <div class="card" style="width: 400px; display: flex; flex-direction: column; gap: 16px;">
-            <h2 style="margin-bottom: 0;">Create Custom Spell</h2>
+            <h2 id="custom-spell-title" style="margin-bottom: 0;">Create Custom Spell</h2>
             <input type="text" id="new-spell-name" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Spell Name">
             <div style="display: flex; gap: 12px; align-items: center;">
             <label style="color: var(--text-muted); font-size: 0.85rem;">Spell Tier:</label>
@@ -1007,9 +1029,10 @@
         <input type="text" id="new-spell-duration" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Duration (e.g., 2d6 turns, Instantaneous)">
         <input type="text" id="new-spell-effect" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Effect (e.g., One door, gate, or portal)">
         <textarea id="new-spell-desc" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left; resize: vertical; min-height: 80px;" placeholder="Spell Description..."></textarea>
+        <label id="new-spell-researched-row" class="arc-check" style="display: none; font-size: 0.85rem;" title="GAZ3 p. 66: 10% of the gold spent on each spell discovered is added to your library"><input type="checkbox" id="new-spell-researched"> I researched it: add 10% of its cost (1,000 dc × level) to my library</label>
             <div style="display: flex; justify-content: flex-end; gap: 12px;">
                 <button onclick="closeSpellModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
-                <button onclick="saveCustomSpell()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Save Spell</button>
+                <button id="custom-spell-save" onclick="saveCustomSpell()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Save Spell</button>
             </div>
         </div>
     </div>
@@ -1024,6 +1047,7 @@
                 </select>
             </div>
             <div id="compendium-preview" style="color: var(--text-muted); font-size: 0.8rem; line-height: 1.4; border-left: 2px solid var(--accent-gold-dim); padding-left: 8px; min-height: 48px;"></div>
+            <label id="compendium-researched-row" class="arc-check" style="display: none; font-size: 0.85rem;" title="GAZ3 p. 66: 10% of the gold spent on each spell discovered is added to your library"><input type="checkbox" id="compendium-researched"> I researched it: add 10% of its cost (1,000 dc × level) to my library</label>
             <div style="display: flex; justify-content: flex-end; gap: 12px;">
                 <button onclick="closeCompendiumModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
                 <button onclick="addSpellFromCompendium()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Add to Spellbook</button>
@@ -1110,7 +1134,7 @@
 
     <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ПРЕДМЕТА -->
     <div id="item-modal" onclick="handleItemModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
-        <div class="card" style="width: 380px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+        <div class="card" style="width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
                 <h2 id="item-modal-title" style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Add Inventory Item</h2>
                 <button type="button" onclick="closeAddItemModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
@@ -1170,6 +1194,34 @@
                         <label style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Charges (optional):</label>
                         <input type="number" id="item-charges-input" class="stat-input" placeholder="e.g. 20" min="0" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%; margin-top: 2px;">
                     </div>
+                </div>
+
+                <!-- Magic item and its kind (it then shows under Magic Items) -->
+                <div class="item-magic-row">
+                    <label class="item-effects-check"><input type="checkbox" id="item-is-magic" onchange="document.getElementById('item-magic-type').disabled = !this.checked"> Magic item</label>
+                    <label class="arc-field" style="flex: 1 1 160px;"><span class="eyebrow">Type</span>
+                        <select id="item-magic-type" class="stat-input arc-input" disabled>
+                            <option value="misc">Miscellaneous</option><option value="ring">Ring</option><option value="wand">Wand</option>
+                            <option value="staff">Staff</option><option value="rod">Rod</option><option value="potion">Potion</option><option value="scroll">Scroll</option>
+                        </select></label>
+                </div>
+
+                <!-- Armour class and saving throws -->
+                <div class="item-defence">
+                    <label class="arc-field"><span class="eyebrow">Armour / shield</span>
+                        <select id="item-defence-kind" class="stat-input arc-input">
+                            <option value="">Not armour</option>
+                            <option value="7">Armour, AC 7 (leather)</option>
+                            <option value="6">Armour, AC 6 (scale)</option>
+                            <option value="5">Armour, AC 5 (chain)</option>
+                            <option value="4">Armour, AC 4 (banded)</option>
+                            <option value="3">Armour, AC 3 (plate)</option>
+                            <option value="0">Armour, AC 0 (suit)</option>
+                            <option value="shield">Shield (-1 AC)</option>
+                        </select></label>
+                    <label class="arc-field"><span class="eyebrow">AC bonus</span><input type="number" id="item-ac-bonus" class="stat-input arc-input" min="0" max="10" placeholder="e.g. 1"></label>
+                    <label class="arc-field"><span class="eyebrow">Save bonus</span><input type="number" id="item-save-bonus" class="stat-input arc-input" min="0" max="10" placeholder="e.g. 1"></label>
+                    <div class="sub-caption" style="grid-column: 1 / -1;">Armour and shields are put on with Equip; their magic bonus improves AC too. AC and save bonuses (ring or cloak of protection...) count while the item is worn, or always if “works while carried” is ticked.</div>
                 </div>
 
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1726,6 +1778,7 @@
     <script src="js/party.js"></script>
     <script src="js/companions.js"></script>
     <script src="js/holdings.js"></script>
+    <script src="js/vessels.js"></script>
     <script src="js/calendar.js"></script>
     <script src="js/app.js"></script>
     <script src="js/notes.js"></script>

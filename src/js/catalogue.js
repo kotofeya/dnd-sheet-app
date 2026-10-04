@@ -7,14 +7,91 @@
 const HOUSE_MAGIC_ITEMS = [{
     id: 'misc_bracers_of_defense', name: 'Bracers of Defense', group: 'misc', usableBy: 'Any', slot: 'hands', weight: 10, houseRule: true,
     source: 'AD&D conversion (house rule)',
-    variants: (typeof DD_ARMOUR !== 'undefined' ? DD_ARMOUR : []).filter(a => !a.isShield && a.baseAC >= 3)
-        .sort((a, b) => b.baseAC - a.baseAC)
-        .map(a => ({ suffix: `(AC ${a.baseAC}, as ${a.name.toLowerCase()})`, armourAC: a.baseAC })),
-    desc: 'AD&D conversion (house rule). A pair of wrist bands that protect the wearer as well as a suit of armour (from leather, AC 7, to plate mail, AC 3) without its weight, bulk or noise. They work only while the wearer wears no armour and carries no shield; with either they do nothing. They are not armour: any class may wear them, magic-users cast spells normally, and Dexterity, rings of protection and other protective items still apply on top. The DM may create them with the Rules Cyclopedia rules for new magic items.',
+    // AD&D (DMG): bracers of defense come in AC 8 to AC 2 (same descending scale as BECMI).
+    variants: [[8, 'as a shield alone'], [7, 'as leather armour'], [6, 'as scale mail'], [5, 'as chain mail'], [4, 'as banded mail'], [3, 'as plate mail'], [2, 'as plate mail and shield']]
+        .map(([ac, as]) => ({ suffix: `(AC ${ac}, ${as})`, armourAC: ac })),
+    desc: 'AD&D conversion (house rule). A pair of wrist bands that give the wearer an armour class of 8 down to 2, as in AD&D, without any weight, bulk or noise. They work only while the wearer wears no armour and carries no shield; with either they do nothing. They are not armour: any class may wear them, magic-users cast spells normally, and Dexterity, rings of protection and other protective items still apply on top. The DM may create them with the Rules Cyclopedia rules for new magic items.',
 }];
 if (typeof RC_MAGIC_ITEMS !== 'undefined') HOUSE_MAGIC_ITEMS.forEach(h => { if (!RC_MAGIC_ITEMS.some(x => x.id === h.id)) RC_MAGIC_ITEMS.push(h); });
 
-const MAGIC_GROUPS = { potion: 'Potions', scroll: 'Scrolls', wand: 'Wands', staff: 'Staves', rod: 'Rods', ring: 'Rings', misc: 'Miscellaneous', arms: 'Weapons & armour' };
+// Ring of protection +5 (house rule: the Rules Cyclopedia stops at +4).
+if (typeof RC_MAGIC_ITEMS !== 'undefined') {
+    const rp = RC_MAGIC_ITEMS.find(x => x.id === 'ring_protection');
+    if (rp && Array.isArray(rp.variants) && !rp.variants.some(v => v.suffix === '+5')) {
+        const at = rp.variants.findIndex(v => v.suffix === '+4');
+        rp.variants.splice(at + 1, 0, { suffix: '+5', acBonus: 5, saveBonus: 5 });
+        rp.desc += ' House rule: a ring of protection +5 also exists, giving +5 to AC and saving throws.';
+    }
+}
+
+// Corrections to the Rules Cyclopedia item data:
+//  - an ointment of blessing gives +2 AC and saves for 1 turn after it is rubbed on, not while carried;
+//  - a ring of spell turning reflects 2d6 spells each day: it has no charges to use up.
+if (typeof RC_MAGIC_ITEMS !== 'undefined') {
+    const ob = RC_MAGIC_ITEMS.find(x => x.id === 'misc_ointment_blessing');
+    if (ob) { delete ob.acBonus; delete ob.saveBonus; }
+    const st = RC_MAGIC_ITEMS.find(x => x.id === 'ring_spell_turning');
+    if (st) delete st.charges;
+}
+
+// Displacer cloak (Rules Cyclopedia p. 237): +2 to saves vs. spells, wands/staves/rods and turn to stone.
+if (typeof RC_MAGIC_ITEMS !== 'undefined') {
+    const dc = RC_MAGIC_ITEMS.find(x => x.id === 'misc_displacer_cloak');
+    if (dc && !dc.saveBonusBy) dc.saveBonusBy = { wands: 2, paralysis: 2, spells: 2 };
+}
+
+// Blackmoor technology: the "alien devices" of the starship Beagle, DA3 City of the Gods
+// (Dave L. Arneson and David J. Ritchie, TSR 1987), "Alien Devices" pp. 32-35; prices are what
+// The Fetch pays for them (p. 24). The Blackmoor natives' names are given in brackets.
+// The module gives no weights: those here are estimates, except the suits, which add no encumbrance.
+const PACK = 'Uses a standard 1" × 2" × ½" power pack; all packs are interchangeable and fully charged when found (less any charges just used). Each time someone untrained (e.g. a PC) changes a pack there is a 50% chance of damaging the device so it no longer works. Alien devices answer only to Galactica or the Federation battle languages, not Common, and are made of super-tough ceramics and acrylics: the device itself cannot be damaged by non-magical weapons or tools (this does not protect whoever carries or wears it).';
+const BLACKMOOR_TECH = [
+    { id: 'tech_battle_armour', name: 'Battle Armour ("Godsuit")', group: 'tech', usableBy: 'Any', weight: 0, cost: 1200, isArmor: true, baseAC: 0, anyClass: true, slot: 'armor',
+      desc: 'Looks like a wondrously light, thin stocking knit with arms and legs to cover the whole body, with a small oblong box woven into the neck. All aliens and Soldiers of the Frog wear it: a form-fitting, light-weight acrylic mesh whose sensor raises a repulsion field, giving the wearer AC 0 without adding to his encumbrance. The suit itself cannot be damaged by normal weapons, but the wearer can still be hit and hurt by them: the protection is only the AC 0. Squeezing the box ejects the power pack. A new pack powers the armour for 4 months; packs in suits the PCs find are good for 1-4 months. On this sheet any class may wear it (it is not metal armour); whether a magic-user can cast spells in it is the DM\'s call. ' + PACK },
+    { id: 'tech_pressure_suit', name: 'Pressure Suit ("Suit of Lights")', group: 'tech', usableBy: 'Any', weight: 0, cost: 2000, isArmor: true, baseAC: 0, anyClass: true, slot: 'armor',
+      desc: 'Looks like battle armour with a hood and a slightly larger box in the neck; when active it wraps the wearer in a multicoloured aura. It has the same qualities as battle armour (AC 0, no encumbrance; the suit cannot be damaged by normal weapons, though the wearer still can) and also an atmospheric envelope: the wearer is immune to heat, cold and lack of air, and to neuron grenades. It must be recharged after every 12 hours of use, by replacing the power pack and hooking the neck box to the nozzle by the keypad in any of Beagle\'s air locks. ' + PACK },
+    { id: 'tech_hand_blaster', name: 'Hand Blaster ("Wand of Sunflame")', group: 'tech', usableBy: 'Any', weight: 10, cost: 800, charges: '5d4', techWeapon: true,
+      desc: 'A dark grey L-shaped pistol. It works like a wand of fireballs, doing 6d6 (6-36) damage at a range of 240\' each time the stud on the grip is pressed. A gauge in the grip shows the charges left. A new pack is good for 24 shots; the pack in a blaster when found holds 5-20. ' + PACK },
+    { id: 'tech_heavy_blaster', name: 'Heavy Blaster ("Staff of Sunflame")', group: 'tech', usableBy: 'Any', weight: 50, cost: 1600, charges: '5d4', techWeapon: true,
+      desc: 'A shoulder-fired weapon the size of a crossbow, shaped like a rifle (to the natives it looks like an arcane club). It works like a wand of fireballs, doing 8d6 (8-48) damage at a range of 360\'. A new pack is good for 24 shots; the pack in one when found holds 5-20. ' + PACK },
+    { id: 'tech_needler', name: 'Needler ("Wand of Poisoned Dreams")', group: 'tech', usableBy: 'Any', weight: 10, cost: 400, charges: '5d4', techWeapon: true,
+      desc: 'A small L-shaped pistol firing hollow needles of paralysing drug, range 60\'. A creature hit takes 1-2 damage and must save vs. paralysis or be paralysed for one hour. The light needles shatter on heavy armour: +5 to the hit roll needed against plate mail or monsters of AC 3 or better. Takes a power pack (24 shots) and an ammo pack (24 needles); the packs in one when found are good for 5-20 uses. ' + PACK },
+    { id: 'tech_riot_stick', name: 'Riot Stick ("Wand of Pain")', group: 'tech', usableBy: 'Any', weight: 20, cost: 200, charges: '5d4', techWeapon: true,
+      desc: 'A 24" white stick with an insulated grip and a pair of black gauntlets on a strap, made to put down shipboard mutinies. Twisting the grip sets one of 10 levels: 1 a harmless jolt, 2 does 1-2 damage, 3 does 1-4, and each level above adds 2 more, up to 15-19 at the tenth. A new pack is good for 24 uses; one found in it has 5-20. ' + PACK },
+    { id: 'tech_light_sabre', name: 'Light Sabre ("Sword of Light")', group: 'tech', usableBy: 'Any', weight: 10, cost: 600, category: 'weapon', weaponId: 'sword_normal', magicBonus: 4, charges: '72',
+      desc: 'A 6" grey metal tube with a lens at one end, made for fighting in spaceships without holing the hull. It projects a 3-foot beam of light shaped into a blade: treat it as a sword +4 (5-12 damage). A power pack gives 12 minutes (72 rounds) of continuous use; the charges count rounds. ' + PACK },
+    { id: 'tech_grenade_launcher', name: 'Grenade Launcher ("Wand of Death Eggs")', group: 'tech', usableBy: 'Any', weight: 20, cost: 600, charges: '2d12', techWeapon: true,
+      desc: 'A dark grey foot-long tube with a red firing button. Drop in a live grenade, aim and press: one round to arm, load and fire. Range 300\'; above 120\' it is very inaccurate (+5 to the hit roll needed). A new propellant and power pack are good for 24 shots; those in one when found, 2-24. Fired with more than one grenade inside, it explodes for 3d6 (3-18) damage to the user plus the grenades\' own effects. ' + PACK },
+    { id: 'tech_grenade', name: 'Grenade ("Death Egg")', group: 'tech', usableBy: 'Any', weight: 5, cost: 200, category: 'consumable',
+      variants: [
+          { suffix: '(gamma, red)', note: 'Blast of radiation: every creature within 30\' saves vs. death ray or takes 8d6 (8-48) damage; no damage to the surroundings.' },
+          { suffix: '(light, yellow)', note: 'A globe of light 60\' across, like continual light but lasting one turn. Anyone looking straight at it when it goes off saves vs. spells or is blinded for one round.' },
+          { suffix: '(opacity, black)', note: 'A globe of darkness 60\' across, like reversed continual light but lasting one turn. It cannot be used to blind.' },
+          { suffix: '(sonic, blue)', note: 'Focused blast of sound: every creature within 5\' saves vs. paralysis or takes 12-48 damage and is paralysed for 6 turns. Destroys furniture and fragile things in range and damages doors; wedged against a wall or floor it blows a hole through 1\' of stone or metal or 3\' of earth or wood.' },
+          { suffix: '(neuron, green)', note: 'Nerve gas, 30\': everyone without a working pressure suit saves vs. breath attack or takes 1-4 damage and is paralysed for 6 turns. It only has to touch skin; armour and clothing do not help. No effect on machines, robots, golems, living statues or objects.' },
+          { suffix: '(tangler, grey)', note: 'Monofilament web, 10\': save vs. wands or take 1-4 damage and be entangled, unable to move until cut free. Freeing each victim takes 3-18 points of damage to the web, and only magic blades and acid affect it; struggling costs 1-4 damage a round.' },
+      ],
+      desc: 'A smooth, heavy egg no more than an inch thick, with a seam around the middle; the colour shows the type. Thrown up to 60\' or fired from a grenade launcher. It does nothing until made live by twisting the two halves until they click; it then explodes five seconds later.' },
+    { id: 'tech_medkit', name: 'Medkit ("Cube of Healing")', group: 'tech', usableBy: 'Humans', weight: 10, cost: 400, charges: '100',
+      desc: 'A smooth white 4" cube with flashing lights and symbols. Held against the skin and switched on it examines the patient and treats wounds, burns and illness. It does not heal directly, but makes normal (not magical) healing go four times as fast, for up to 100 points of damage in all (the charges). Made for humans only: a non-human (demi-humans included) must save vs. poison or take 6-24 damage from malpractice. It has its own power source.' },
+    { id: 'tech_communicator', name: 'Communicator ("Talk Box")', group: 'tech', usableBy: 'Any', weight: 2, cost: 800,
+      desc: 'A grey egg-shaped device with a belt clip. Two-way talk with anyone who has an implant or communicator, or with devices on the alien network (a computer, for example), up to 48 miles away; it always receives its band, and when transmitting it sends all sounds within 12". Told "translate", it translates what it receives into the user\'s language. A pack powers 6 hours of talk (about 24 conversations). ' + PACK },
+    { id: 'tech_glow_wand', name: 'Glow Wand ("Magic Torch")', group: 'tech', usableBy: 'Any', weight: 2, cost: 200,
+      desc: 'A 6" ridged grey tube with a lens cap. Twisting the cap turns on a diffused glow that grows brighter and more focused the further it is turned. A power pack lasts 24 hours. ' + PACK },
+    { id: 'tech_snoopers', name: 'Snoopers ("Far Seers")', group: 'tech', usableBy: 'Any', weight: 2, cost: 400, slot: 'head',
+      desc: 'Goggles on an elastic strap. Focusing magnifies up to four times as clearly and as far; they brighten any available light so the wearer sees as in daylight, and with no light at all a toss of the head gives infravision as the spell. No power pack, but the lenses are delicate: a 2% chance per use of breaking them.' },
+    { id: 'tech_translator', name: 'Translator Badge ("Medallion of Speaking")', group: 'tech', usableBy: 'Any', weight: 1, cost: 1000, slot: 'neck',
+      desc: 'A 1" pin-on button with a turning ring of runes. It translates the wearer\'s words into the chosen language and everyone else\'s speech into his, so that the translation seems to come from the speaker\'s mouth. An unknown language is learnt gradually by listening. It has its own power and is thrown away when it runs out, after 5-20 months.' },
+    { id: 'tech_power_pack', name: 'Power Pack', group: 'tech', usableBy: 'Any', weight: 1, cost: 100, category: 'consumable',
+      desc: 'A standard 1" × 2" × ½" pack for alien devices, fully charged: 24 shots of a blaster, needler or riot stick, 4 months of battle armour, 12 hours of a pressure suit, 72 rounds of a light sabre, 24 hours of a glow wand, 6 hours of a communicator. Used packs can only be recharged in Beagle\'s power plant. Untrained users have a 50% chance of damaging a device when changing its pack.' },
+    { id: 'tech_ammo_pack', name: 'Ammo Pack (needler)', group: 'tech', usableBy: 'Any', weight: 1, cost: 100, category: 'consumable',
+      desc: 'A pack of 24 drugged needles for a needler, the same size as a power pack.' },
+    { id: 'tech_propellant_pack', name: 'Propellant Pack (grenade launcher)', group: 'tech', usableBy: 'Any', weight: 1, cost: 100, category: 'consumable',
+      desc: 'Propellant for a grenade launcher: with a power pack, good for 24 shots.' },
+].map(x => ({ ...x, source: 'DA3 City of the Gods (TSR 1987), Alien Devices pp. 32-35; price p. 24', page: '' }));
+if (typeof RC_MAGIC_ITEMS !== 'undefined') BLACKMOOR_TECH.forEach(h => { if (!RC_MAGIC_ITEMS.some(x => x.id === h.id)) RC_MAGIC_ITEMS.push(h); });
+
+const MAGIC_GROUPS = { potion: 'Potions', scroll: 'Scrolls', wand: 'Wands', staff: 'Staves', rod: 'Rods', ring: 'Rings', misc: 'Miscellaneous', tech: 'Blackmoor technology', arms: 'Weapons & armour' };
 const CATALOGUE_TABS = [
     { id: 'gear', label: 'Gear' },
     { id: 'weapons', label: 'Weapons' },
@@ -196,13 +273,16 @@ function addWeaponFromCatalogue(weaponId) {
 // ----- Armour -----
 function renderArmourTab() {
     return DD_ARMOUR.filter(a => catalogueMatches(a.name + ' ' + a.desc)).map(a => {
+        const isCentaur = currentCharacter && currentCharacter.characterClass === 'Centaur';
         const allowed = a.isShield ? (typeof getArmourRule === 'function' ? getArmourRule(currentCharacter).shields : true)
+            : a.centaurOnly ? isCentaur
+            : isCentaur ? false                                   // PC1: a centaur needs barding made for it
             : (typeof isArmourAllowed === 'function' ? isArmourAllowed(currentCharacter, a.baseAC) : true);
         return catRow({
             id: a.id, name: a.name,
             meta: `${a.isShield ? 'AC -1' : `AC ${a.baseAC}`} · ${fmtWeight(a.weight)} · ${fmtCost(a.cost)}`,
             tagHtml: allowed ? '' : '<span class="tag" style="color: var(--danger);">Not for your class</span>',
-            desc: `${escapeHtml(a.desc)}<div class="arc-source">${escapeHtml(a.source)}, Table 8-3</div>`,
+            desc: `${escapeHtml(a.desc)}<div class="arc-source">${escapeHtml(a.source)}${a.centaurOnly ? '' : ', Table 8-3'}</div>`,
             actions: `<button type="button" class="btn btn-sm" onclick="addArmourFromCatalogue('${a.id}')">Add</button><button type="button" class="btn btn-sm" onclick="catalogueEquip('armour', '${a.id}')">Equip</button><button type="button" class="btn btn-sm" onclick="openForgeFor('${a.isShield ? 'shield' : 'armour'}', '${a.id}')">Enchant</button>`,
         });
     }).join('');
@@ -210,7 +290,7 @@ function renderArmourTab() {
 function armourItem(a) {
     return a.isShield
         ? { catalogId: a.id, name: a.name, category: 'equipment', isShield: true, slot: 'offHand', weight: a.weight, cost: a.cost, desc: a.desc }
-        : { catalogId: a.id, name: a.name, category: 'equipment', isArmor: true, baseAC: a.baseAC, slot: 'armor', weight: a.weight, cost: a.cost, desc: a.desc };
+        : { catalogId: a.id, name: a.name, category: 'equipment', isArmor: true, baseAC: a.baseAC, slot: 'armor', weight: a.weight, cost: a.cost, desc: a.desc, ...(a.centaurOnly ? { centaurOnly: true } : {}) };
 }
 function addArmourFromCatalogue(id) {
     const a = DD_ARMOUR.find(x => x.id === id); if (!a) return;
@@ -265,13 +345,14 @@ function renderMagicTab() {
             const tags = [`<span class="tag">${escapeHtml(MAGIC_GROUPS[x.group] || x.group)}</span>`];
             if (x.cursed) tags.push(`<span class="tag" style="color: var(--danger);">Cursed</span>`);
             if (x.houseRule) tags.push(`<span class="tag" style="color: var(--warn);">House rule</span>`);
+            if (x.anyClass) tags.push(`<span class="tag" style="color: var(--info);" title="Not metal armour: any class may wear it on this sheet">Any class</span>`);
             const facts = [x.charges ? `Charges ${escapeHtml(x.charges)}` : '', x.duration ? `Duration ${escapeHtml(x.duration)}` : '', x.usableBy ? `Usable by ${escapeHtml(x.usableBy)}` : '', x.slot ? `Worn: ${escapeHtml(x.slot)}` : ''].filter(Boolean).join(' · ');
             return catRow({
                 id: x.id, name: x.name, tagHtml: tags.join(''),
-                meta: `${fmtWeight(x.weight)}`,
+                meta: `${fmtWeight(x.weight)}${x.cost ? ` · ${fmtCost(x.cost)}` : ''}`,
                 warn: magicUsableNote(x),
-                desc: `${facts ? `<div class="cat-facts">${facts}</div>` : ''}${escapeHtml(x.desc)}<div class="arc-source">${x.houseRule ? escapeHtml(x.source) : `Rules Cyclopedia p. ${x.page || ''}`}</div>`,
-                actions: `${variants}<button type="button" class="btn btn-sm" onclick="addMagicFromCatalogue('${x.id}')">Add</button>${(x.slot || ['wand', 'staff', 'rod'].includes(x.group)) ? `<button type="button" class="btn btn-sm" onclick="catalogueEquip('magic', '${x.id}')">Equip</button>` : ''}`,
+                desc: `${facts ? `<div class="cat-facts">${facts}</div>` : ''}${escapeHtml(x.desc)}${Array.isArray(x.variants) && x.variants.some(v => v.note) ? `<ul class="cat-variant-notes">${x.variants.map(v => `<li><strong>${escapeHtml(v.suffix)}</strong> ${escapeHtml(v.note || '')}</li>`).join('')}</ul>` : ''}<div class="arc-source">${x.houseRule || (x.source && x.source !== 'Rules Cyclopedia') ? escapeHtml(x.source) : `Rules Cyclopedia p. ${x.page || ''}`}</div>`,
+                actions: `${variants}<button type="button" class="btn btn-sm" onclick="addMagicFromCatalogue('${x.id}')">Add</button>${(x.slot || x.techWeapon || x.weaponId || ['wand', 'staff', 'rod'].includes(x.group)) ? `<button type="button" class="btn btn-sm" onclick="catalogueEquip('magic', '${x.id}')">Equip</button>` : ''}`,
             });
         }).join('');
     }
@@ -311,12 +392,21 @@ function addMagicFromCatalogue(id, variantIndex = null) {
         usableBy: x.usableBy, duration: x.duration, page: x.page, source: x.source || 'Rules Cyclopedia',
     };
     if (v && v.armourAC != null) item.armourAC = Number(v.armourAC);
+    if (v && v.note) item.desc = `${v.note} ${x.desc}`;
+    // Armour, weapons and other catalogue fields carried over as they are (Blackmoor technology).
+    ['isArmor', 'baseAC', 'anyClass', 'techWeapon', 'weaponId', 'magicBonus', 'cost', 'saveBonusBy'].forEach(k => { if (x[k] !== undefined) item[k] = x[k]; });
+    if (x.category) item.category = x.category;
+    if (x.isArmor) delete item.slot;
     const ac = v && v.acBonus != null ? v.acBonus : x.acBonus;
     const sv = v && v.saveBonus != null ? v.saveBonus : x.saveBonus;
     if (ac) item.acBonus = Number(ac);
     if (sv) item.saveBonus = Number(sv);
     // Roll the charges it is found with (e.g. "2d10 (optional 3d10)").
-    if (x.charges) {
+    if (x.id === 'ring_wishes') {
+        // 1d10: 1-4 one wish, 5-7 two, 8-9 three, 10 four (Rules Cyclopedia).
+        const r = 1 + Math.floor(Math.random() * 10);
+        item.charges = r <= 4 ? 1 : r <= 7 ? 2 : r <= 9 ? 3 : 4; item.chargesRule = '1d10: 1-4 = 1, 5-7 = 2, 8-9 = 3, 10 = 4 wishes';
+    } else if (x.charges) {
         const m = String(x.charges).match(/^(\d+)d(\d+)(?:\s*\+\s*(\d+))?/);
         if (m) { let t = Number(m[3]) || 0; for (let i = 0; i < Number(m[1]); i++) t += 1 + Math.floor(Math.random() * Number(m[2])); item.charges = t; item.chargesRule = x.charges; }
         else if (/^\d+$/.test(String(x.charges))) item.charges = Number(x.charges);
@@ -368,7 +458,7 @@ function openForgeNamed(id) {
 }
 function forgeSet(field, value) {
     if (!forgeState) forgeState = defaultForge();
-    if (field === 'kind') { forgeState = defaultForge(value); }
+    if (field === 'kind') { forgeState = value === 'item' ? defaultForgeItem() : defaultForge(value); }
     else if (['bonus', 'enemyBonus', 'qty', 'int', 'ego'].includes(field)) forgeState[field] = Number(value) || 0;
     else if (['returning', 'intelligent'].includes(field)) forgeState[field] = Boolean(value);
     else forgeState[field] = value;
@@ -439,10 +529,11 @@ function forgeResult() {
 }
 function renderForge() {
     if (!forgeState) forgeState = defaultForge();
+    if (forgeState.kind === 'item') return renderForgeItem();
     const f = forgeState;
     const db = window.GlobalWeaponsDatabase || {};
     const r = forgeResult();
-    const kinds = [['weapon', 'Weapon'], ['missile', 'Missiles'], ['armour', 'Armour'], ['shield', 'Shield']];
+    const kinds = [['weapon', 'Weapon'], ['missile', 'Missiles'], ['armour', 'Armour'], ['shield', 'Shield'], ['item', 'Other magic item']];
     let baseOpts = '';
     if (f.kind === 'weapon') baseOpts = Object.values(db).filter(w => !/^(oil|holy|rock)/.test(w.id)).sort((a, b) => a.name.localeCompare(b.name)).map(w => `<option value="${w.id}" ${f.base === w.id ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
     if (f.kind === 'missile') baseOpts = FORGE_MISSILES.map(m => `<option value="${m.id}" ${f.base === m.id ? 'selected' : ''}>${escapeHtml(m.plural)}</option>`).join('');
@@ -502,6 +593,7 @@ function renderForge() {
     </div>`;
 }
 function addForgedItem() {
+    if (forgeState && forgeState.kind === 'item') { if (currentCharacter) addForgedMiscItem(); return; }
     const r = forgeResult(); if (!r || !currentCharacter) return;
     const f = forgeState;
     const bonus = Number(f.bonus) || 0;
@@ -518,6 +610,159 @@ function addForgedItem() {
     if (f.returning && f.kind === 'weapon') item.returning = true;
     if (r.intel) item.intelligence = r.intel;
     addCatalogueItemToInventory(item);
+}
+
+
+// ---------------------------------------------------------------------------
+// Other magic items (Rules Cyclopedia, Making Magical Items: miscellaneous items).
+// Initial cost 1,000 gp per spell level; charges cost 10% of that each, permanence 5 times it;
+// usable N times an hour/day/week/month: initial cost -20/25/30/35%, then 30 + N charges.
+// Chance of success per spell: (Int + level) x 2 - 3 x spell level. Time: 1 week + 1 day per 1,000 gp.
+const FORGE_ITEM_TYPES = [
+    { id: 'misc', label: 'Miscellaneous (cloak, boots, amulet...)' }, { id: 'ring', label: 'Ring' },
+    { id: 'wand', label: 'Wand' }, { id: 'staff', label: 'Staff' }, { id: 'rod', label: 'Rod' },
+    { id: 'potion', label: 'Potion' }, { id: 'scroll', label: 'Scroll' },
+];
+const FORGE_PERIODS = [{ id: 'hour', label: 'an hour', cut: 0.20 }, { id: 'day', label: 'a day', cut: 0.25 }, { id: 'week', label: 'a week', cut: 0.30 }, { id: 'month', label: 'a month', cut: 0.35 }];
+function defaultForgeItem() {
+    return { kind: 'item', type: 'misc', object: '', slot: '', weight: 10, name: '', spells: [{ name: '', level: 1 }], use: 'permanent', charges: 20, uses: 1, period: 'day',
+             acBonus: 0, saveBonus: 0, ability: '', abilityMode: 'add', abilityValue: 1, carried: false, cursed: false, notes: '' };
+}
+function forgeSpellNames() {
+    const db = window.GlobalSpellsDatabase || {};
+    const seen = new Map();
+    Object.values(db).forEach(s => { if (s && s.name && !seen.has(s.name)) seen.set(s.name, s.level); });
+    return [...seen.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+function forgeItemResult() {
+    const f = forgeState;
+    const spells = f.spells.filter(s => s.name.trim() && Number(s.level) > 0);
+    const levels = spells.reduce((t, s) => t + Math.max(1, Math.min(9, Number(s.level) || 1)), 0);
+    const initial = levels * 1000;
+    let total = 0, useText = '';
+    if (f.use === 'permanent') { total = initial * 6; useText = 'permanent (5 times the initial cost)'; }
+    else if (f.use === 'charges') { const n = Math.max(1, Number(f.charges) || 1); total = initial + initial * 0.1 * n; useText = `${n} charge${n > 1 ? 's' : ''} (10% of the initial cost each)`; }
+    else {
+        const p = FORGE_PERIODS.find(x => x.id === f.period) || FORGE_PERIODS[1];
+        const n = Math.max(1, Number(f.uses) || 1);
+        const cut = initial * (1 - p.cut);
+        total = cut + cut * 0.1 * (30 + n);
+        useText = `${n} time${n > 1 ? 's' : ''} ${p.label} (initial cost -${Math.round(p.cut * 100)}%, then ${30 + n} charges)`;
+    }
+    total = Math.round(total);
+    const ch = currentCharacter || {};
+    const intScore = Number(typeof getEffectiveScore === 'function' ? getEffectiveScore(ch, 'intelligence') : ch.abilities?.intelligence?.score) || 10;
+    const lvl = Number(ch.level) || 1;
+    const chances = spells.map(s => ({ name: s.name, level: Number(s.level), pct: Math.max(0, Math.min(100, (intScore + lvl) * 2 - 3 * Number(s.level))) }));
+    const objectName = (f.object || '').trim() || { misc: 'Amulet', ring: 'Ring', wand: 'Wand', staff: 'Staff', rod: 'Rod', potion: 'Potion', scroll: 'Scroll' }[f.type];
+    const autoName = spells.length ? `${objectName} of ${spells.map(s => s.name.trim()).join(' and ')}` : objectName;
+    const extras = [];
+    if (Number(f.acBonus)) extras.push(`+${Number(f.acBonus)} to AC`);
+    if (Number(f.saveBonus)) extras.push(`+${Number(f.saveBonus)} to saving throws`);
+    if (f.ability) extras.push(`${f.abilityMode === 'set' ? 'sets' : 'changes'} ${f.ability} ${f.abilityMode === 'set' ? 'to' : 'by'} ${Number(f.abilityValue) > 0 && f.abilityMode !== 'set' ? '+' : ''}${Number(f.abilityValue)}`);
+    const desc = [
+        spells.length ? `Spell effects: ${spells.map(s => `${s.name.trim()} (level ${s.level})`).join(', ')}.` : '',
+        `Use: ${f.use === 'permanent' ? 'permanent, never used up' : f.use === 'charges' ? `${Math.max(1, Number(f.charges) || 1)} charges` : `${Math.max(1, Number(f.uses) || 1)} time(s) ${(FORGE_PERIODS.find(x => x.id === f.period) || FORGE_PERIODS[1]).label}`}.`,
+        extras.length ? `Also ${extras.join(', ')}${f.carried ? ' while carried' : ' while worn'}.` : '',
+        f.cursed ? 'Cursed.' : '',
+        (f.notes || '').trim(),
+    ].filter(Boolean).join(' ');
+    return { name: (f.name || '').trim() || autoName, autoName, levels, initial, total, useText, chances, days: 7 + Math.ceil(total / 1000), desc, intScore, lvl };
+}
+function forgeItemSet(field, value) {
+    if (!forgeState || forgeState.kind !== 'item') forgeState = defaultForgeItem();
+    if (['weight', 'charges', 'uses', 'acBonus', 'saveBonus', 'abilityValue'].includes(field)) forgeState[field] = Number(value) || 0;
+    else if (['carried', 'cursed'].includes(field)) forgeState[field] = Boolean(value);
+    else forgeState[field] = value;
+    if (field === 'type') forgeState.slot = { ring: 'ring', wand: 'held', staff: 'held', rod: 'held' }[value] || (['potion', 'scroll'].includes(value) ? '' : forgeState.slot);
+    if (field === 'type' && ['potion', 'scroll'].includes(value) && forgeState.use === 'permanent') forgeState.use = 'charges', forgeState.charges = 1;
+    renderCatalogueBody();
+}
+function forgeSpell(i, field, value) {
+    const s = forgeState && forgeState.spells && forgeState.spells[i];
+    if (!s) return;
+    s[field] = field === 'level' ? Math.max(1, Math.min(9, Number(value) || 1)) : value;
+    if (field === 'name') { const hit = forgeSpellNames().find(([n]) => n.toLowerCase() === String(value).trim().toLowerCase()); if (hit) s.level = hit[1]; }
+    renderCatalogueBody();
+}
+function forgeSpellAdd() { forgeState.spells.push({ name: '', level: 1 }); renderCatalogueBody(); }
+function forgeSpellRemove(i) { forgeState.spells.splice(i, 1); if (!forgeState.spells.length) forgeState.spells.push({ name: '', level: 1 }); renderCatalogueBody(); }
+function renderForgeItem() {
+    const f = forgeState;
+    const r = forgeItemResult();
+    const kinds = [['weapon', 'Weapon'], ['missile', 'Missiles'], ['armour', 'Armour'], ['shield', 'Shield'], ['item', 'Other magic item']];
+    const names = forgeSpellNames();
+    const slots = [['', 'Not worn (carried)'], ['head', 'Head'], ['neck', 'Neck'], ['cloak', 'Cloak / robe'], ['ring', 'Ring (finger)'], ['belt', 'Belt'], ['hands', 'Hands / bracers'], ['boots', 'Feet / boots'], ['held', 'Held in the hand']];
+    const sel = (opts, val, fn) => `<select class="stat-input arc-input" onchange="${fn}">${opts.map(([v, l]) => `<option value="${v}" ${String(val) === String(v) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`;
+    const spellRows = f.spells.map((s, i) => `
+        <div class="forge-spell-row">
+            <input type="text" class="stat-input arc-input" list="forge-spell-list" value="${escapeHtml(s.name)}" placeholder="Spell, e.g. Invisibility" onchange="forgeSpell(${i}, 'name', this.value)">
+            <label class="forge-lvl"><span class="eyebrow">Level</span><input type="number" min="1" max="9" class="stat-input arc-input" value="${s.level}" onchange="forgeSpell(${i}, 'level', this.value)"></label>
+            <button type="button" class="icon-btn danger" onclick="forgeSpellRemove(${i})" aria-label="Remove spell">${getIcon('close', 12)}</button>
+        </div>`).join('');
+    return `
+    <div class="cat-forge">
+        <p class="sub-caption">Make any other magic item (rings, wands, cloaks, boots, potions...) with the Rules Cyclopedia's rules for miscellaneous magic items: each power is a spell effect costing 1,000 gp per spell level.</p>
+        <div class="arc-fields">
+            <label class="arc-field arc-narrow"><span class="eyebrow">Kind</span><select class="stat-input arc-input" onchange="forgeSet('kind', this.value)">${kinds.map(([k, l]) => `<option value="${k}" ${f.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label class="arc-field"><span class="eyebrow">Type</span>${sel(FORGE_ITEM_TYPES.map(t => [t.id, t.label]), f.type, "forgeItemSet('type', this.value)")}</label>
+            <label class="arc-field"><span class="eyebrow">Object</span><input type="text" class="stat-input arc-input" value="${escapeHtml(f.object)}" placeholder="e.g. Cloak, Boots, Brooch" onchange="forgeItemSet('object', this.value)"></label>
+            <label class="arc-field arc-narrow"><span class="eyebrow">Worn</span>${sel(slots, f.slot, "forgeItemSet('slot', this.value)")}</label>
+            <label class="arc-field arc-narrow"><span class="eyebrow">Weight (cn)</span><input type="number" min="0" class="stat-input arc-input" value="${f.weight}" onchange="forgeItemSet('weight', this.value)"></label>
+        </div>
+        <div class="arc-sub-head"><span class="eyebrow eyebrow-strong">Spell effects</span><button type="button" class="btn btn-sm" onclick="forgeSpellAdd()">+ Spell effect</button></div>
+        <datalist id="forge-spell-list">${names.map(([n, l]) => `<option value="${escapeHtml(n)}">level ${l}</option>`).join('')}</datalist>
+        ${spellRows}
+        <div class="arc-fields">
+            <label class="arc-field"><span class="eyebrow">Use</span>${sel([['permanent', 'Permanent'], ['charges', 'Charges'], ['perday', 'Limited uses per time']], f.use, "forgeItemSet('use', this.value)")}</label>
+            ${f.use === 'charges' ? `<label class="arc-field arc-narrow"><span class="eyebrow">Charges</span><input type="number" min="1" class="stat-input arc-input" value="${f.charges}" onchange="forgeItemSet('charges', this.value)"></label>` : ''}
+            ${f.use === 'perday' ? `<label class="arc-field arc-narrow"><span class="eyebrow">Uses</span><input type="number" min="1" class="stat-input arc-input" value="${f.uses}" onchange="forgeItemSet('uses', this.value)"></label><label class="arc-field arc-narrow"><span class="eyebrow">Per</span>${sel(FORGE_PERIODS.map(p => [p.id, p.label.replace(/^an? /, '')]), f.period, "forgeItemSet('period', this.value)")}</label>` : ''}
+        </div>
+        <div class="arc-sub-head"><span class="eyebrow eyebrow-strong">Effects on the sheet</span><span class="eyebrow">priced by the DM</span></div>
+        <div class="arc-fields">
+            <label class="arc-field arc-narrow"><span class="eyebrow">AC bonus</span><input type="number" min="0" max="10" class="stat-input arc-input" value="${f.acBonus}" onchange="forgeItemSet('acBonus', this.value)"></label>
+            <label class="arc-field arc-narrow"><span class="eyebrow">Save bonus</span><input type="number" min="0" max="10" class="stat-input arc-input" value="${f.saveBonus}" onchange="forgeItemSet('saveBonus', this.value)"></label>
+            <label class="arc-field"><span class="eyebrow">Ability score</span>${sel([['', 'None'], ['strength', 'Strength'], ['intelligence', 'Intelligence'], ['wisdom', 'Wisdom'], ['dexterity', 'Dexterity'], ['constitution', 'Constitution'], ['charisma', 'Charisma']], f.ability, "forgeItemSet('ability', this.value)")}</label>
+            ${f.ability ? `<label class="arc-field arc-narrow"><span class="eyebrow">How</span>${sel([['add', '+/-'], ['set', 'set to']], f.abilityMode, "forgeItemSet('abilityMode', this.value)")}</label><label class="arc-field arc-narrow"><span class="eyebrow">Value</span><input type="number" class="stat-input arc-input" value="${f.abilityValue}" onchange="forgeItemSet('abilityValue', this.value)"></label>` : ''}
+        </div>
+        <div class="arc-fields">
+            <label class="arc-check"><input type="checkbox" ${f.carried ? 'checked' : ''} onchange="forgeItemSet('carried', this.checked)"> Works while carried</label>
+            <label class="arc-check"><input type="checkbox" ${f.cursed ? 'checked' : ''} onchange="forgeItemSet('cursed', this.checked)"> Cursed</label>
+        </div>
+        <label class="arc-field"><span class="eyebrow">Notes</span><input type="text" class="stat-input arc-input" value="${escapeHtml(f.notes)}" placeholder="Command word, appearance, how it works..." onchange="forgeItemSet('notes', this.value)"></label>
+        <div class="arc-panel">
+            <div class="arc-fields"><label class="arc-field"><span class="eyebrow">Name</span><input type="text" class="stat-input arc-input" value="${escapeHtml(f.name || '')}" placeholder="${escapeHtml(r.autoName)}" onchange="forgeItemSet('name', this.value)"></label></div>
+            <div class="tally" style="margin: 6px 0;">
+                <span title="1,000 gp per spell level">Initial cost <strong>${r.initial.toLocaleString('en-US')} gp</strong></span>
+                <span title="${escapeHtml(r.useText)}">Total cost <strong>${r.total.toLocaleString('en-US')} gp</strong></span>
+                <span>Time <strong>${r.days} days</strong></span>
+                <span>Market price about <strong>${(r.total * 2).toLocaleString('en-US')} gp</strong></span>
+            </div>
+            ${r.chances.length ? `<p class="sub-caption" style="margin: 2px 0;">Chance of success for you (Int ${r.intScore}, level ${r.lvl}): ${r.chances.map(c => `${escapeHtml(c.name)} ${c.pct}%`).join(' · ')}. If the first roll fails the item is ruined; a later failure loses that power and stops further enchantment.</p>` : '<p class="sub-caption">Add at least one spell effect to price the item, or leave it empty for a found item.</p>'}
+            <p class="sub-caption" style="margin: 4px 0;">${escapeHtml(r.desc)}</p>
+            <div class="arc-actions"><button type="button" class="btn btn-sm btn-accent" onclick="addForgedItem()">Add to inventory</button>${!['potion', 'scroll'].includes(f.type) && f.slot ? '<button type="button" class="btn btn-sm" onclick="catalogueEquip(\'forge\')">Add &amp; equip</button>' : ''}</div>
+        </div>
+        <details class="arc-rules"><summary>Making magical items</summary><p class="sub-caption">Only a magic-user or cleric of 9th level or more can make magic items, and each needs a rare component found by adventure. Initial cost: 1,000 gp per spell level of all the spell effects. Charges cost 10% of the initial cost each; a permanent item costs 5 times the initial cost more (as 50 charges). Items usable a number of times an hour, day, week or month cut the initial cost by 20%, 25%, 30% or 35% and then pay for 30 charges plus one per use. Chance of success, rolled for each spell: (Intelligence + level) × 2 − 3 × spell level. Time: one week plus one day per 1,000 gp, working 8 hours a day.</p><div class="arc-source">Rules Cyclopedia, Chapter 16: Making Magical Items</div></details>
+    </div>`;
+}
+function addForgedMiscItem() {
+    const f = forgeState, r = forgeItemResult();
+    const group = f.type;
+    const item = {
+        catalogId: 'forge_item', name: r.name, group, magic: true, category: ['potion', 'scroll'].includes(group) ? 'consumable' : 'equipment',
+        weight: Math.max(0, Number(f.weight) || 0), desc: r.desc, isCursed: Boolean(f.cursed),
+        cost: r.total * 2, enchantCost: r.total, source: 'Rules Cyclopedia (magic forge)',
+    };
+    const slot = f.slot === 'held' ? '' : f.slot;
+    if (slot) item.slot = slot;
+    if (f.slot === 'held' && !['wand', 'staff', 'rod'].includes(group)) item.techWeapon = true;   // held in the main hand
+    if (f.use === 'charges') item.charges = Math.max(1, Number(f.charges) || 1);
+    if (Number(f.acBonus)) item.acBonus = Number(f.acBonus);
+    if (Number(f.saveBonus)) item.saveBonus = Number(f.saveBonus);
+    if (f.ability) item.abilityMods = [{ ability: f.ability, mode: f.abilityMode === 'set' ? 'set' : 'add', value: Number(f.abilityValue) || 0 }];
+    if (f.carried) item.activeWhileCarried = true;
+    addCatalogueItemToInventory(item);
+    if ((item.abilityMods || item.acBonus || item.saveBonus) && f.carried && typeof afterEquipChange === 'function') afterEquipChange();
 }
 
 // Add from the catalogue (or forge) and equip at once.
@@ -543,4 +788,5 @@ Object.assign(window, {
     openCatalogue, closeCatalogue, setCatalogueTab, setCatalogueQuery, setCatalogueGroup, toggleCatalogueRow,
     addGearFromCatalogue, addWeaponFromCatalogue, addArmourFromCatalogue, addMountFromCatalogue, addMagicFromCatalogue,
     openForgeFor, openForgeNamed, forgeSet, forgeToggle, addForgedItem, parseCostGp, fmtCost,
+    forgeItemSet, forgeSpell, forgeSpellAdd, forgeSpellRemove,
 });

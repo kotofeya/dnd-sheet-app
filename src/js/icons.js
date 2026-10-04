@@ -62,6 +62,8 @@ const ICON_PATHS = {
     // --- Controls --------------------------------------------------------------
     // Remove / close: a saltire with flared ends.
     close: `<path d="M6 6l12 12M18 6 6 18" stroke-width="1.8"/><path d="M3.8 7.2l3.4-3.4M16.8 20.2l3.4-3.4M16.8 3.8l3.4 3.4M3.8 16.8l3.4 3.4" stroke-width="1.4"/>`,
+    // Edit: a quill.
+    edit: `<path d="M20.5 3.5c-6 1-10.5 5.5-13 12.5l1.2 1.2c7-2.5 11.5-7 11.8-13.7z" ${wash}/><path d="M8.7 17.2 4 21.5"/><path d="M10.5 13.5c2.5-2.6 5-4.8 8-6.8" stroke-width="1" opacity=".7"/><path d="M3.5 21.5h7" stroke-width="1.2"/>`,
     // Raise / lower: barbed arrowheads.
     up: `<path d="M4.5 15.5 12 8l7.5 7.5"/><path d="M8.5 16 12 12.5l3.5 3.5" stroke-width="1" opacity=".6"/>`,
     down: `<path d="M4.5 8.5 12 16l7.5-7.5"/><path d="M8.5 8 12 11.5 15.5 8" stroke-width="1" opacity=".6"/>`,

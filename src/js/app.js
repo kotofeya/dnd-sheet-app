@@ -248,6 +248,14 @@ function getUnmetMinScores(classInfo, character) {
         .map(([key, min]) => `${ABILITY_ABBR[key]} ${min}`);
 }
 
+// Returns e.g. ["Str 13"] for each racial maximum (PC1 Table 1) the character goes over.
+function getOverMaxScores(classInfo, character) {
+    if (!classInfo || !classInfo.maxScores || !character) return [];
+    return Object.entries(classInfo.maxScores)
+        .filter(([key, max]) => (Number(character.abilities?.[key]?.score) || 0) > max)
+        .map(([key, max]) => `${ABILITY_ABBR[key]} ${max}`);
+}
+
 // Warn (without blocking) when the class's entry requirements are not met.
 function renderClassRequirements() {
     const el = document.getElementById('class-req-warning');
@@ -257,12 +265,14 @@ function renderClassRequirements() {
     const notes = [];
     const unmet = getUnmetMinScores(classInfo, currentCharacter);
     if (unmet.length) notes.push(`Requires ${unmet.join(', ')}`);
+    const over = getOverMaxScores(classInfo, currentCharacter);
+    if (over.length) notes.push(`Maximum ${over.join(', ')}`);
     const subUnmet = getUnmetMinScores(subInfo, currentCharacter);
     if (subUnmet.length) notes.push(`${currentCharacter.subClass} requires ${subUnmet.join(', ')}`);
     [...(classInfo?.restrictions || []), ...(subInfo?.restrictions || [])].forEach(r => notes.push(r));
     el.textContent = notes.join(' · ');
     el.style.display = notes.length ? 'block' : 'none';
-    el.style.color = (unmet.length || subUnmet.length) ? 'var(--warn)' : 'var(--text-muted)';
+    el.style.color = (unmet.length || subUnmet.length || over.length) ? 'var(--warn)' : 'var(--text-muted)';
 }
 window.renderClassRequirements = renderClassRequirements;
 
@@ -275,13 +285,25 @@ function updateClassStats() {
     document.getElementById('char-hd').value = "d" + classInfo.hitDie;
     
     if (classInfo.saves && classInfo.saves.length > 0) {
-        const saves0 = classInfo.saves.find(tier => level >= tier.minLevel && level <= tier.maxLevel);
+        // Some creature heroes save at another level (a brownie as a halfling of its Hit Dice, a pooka by
+        // the higher of level and Hit Dice...), and by stage before 1st level (PC1).
+        const stage = (currentCharacter && typeof getCreatureStage === 'function') ? getCreatureStage(currentCharacter) : null;
+        const saveLevel = clampInt(stage?.saveLevel ?? classInfo.saveLevels?.[level] ?? level, 1, 36, level);
+        const saves0 = classInfo.saves.find(tier => saveLevel >= tier.minLevel && saveLevel <= tier.maxLevel);
         const wisMod = Number(document.getElementById('wis-mod').value) || 0;
         // Worn magic items (ring of protection...) improve every saving throw.
-        const itemSave = (currentCharacter && typeof getEquippedSaveBonus === 'function') ? getEquippedSaveBonus(currentCharacter) : 0;
-        const saves = saves0 && { death: saves0.death - itemSave, wands: saves0.wands - itemSave, paralysis: saves0.paralysis - itemSave, breath: saves0.breath - itemSave, spells: saves0.spells - itemSave };
+        const zero = { death: 0, wands: 0, paralysis: 0, breath: 0, spells: 0 };
+        const itemSave = (currentCharacter && typeof getEquippedSaveBonuses === 'function') ? getEquippedSaveBonuses(currentCharacter) : zero;
+        const saves = saves0 && { death: saves0.death - itemSave.death, wands: saves0.wands - itemSave.wands, paralysis: saves0.paralysis - itemSave.paralysis, breath: saves0.breath - itemSave.breath, spells: saves0.spells - itemSave.spells };
         const note = document.getElementById('save-item-note');
-        if (note) { note.textContent = itemSave ? `Includes +${itemSave} from magic items worn.` : ''; note.style.display = itemSave ? 'block' : 'none'; }
+        if (note) {
+            const labels = { death: 'death ray/poison', wands: 'wands', paralysis: 'paralysis/turn to stone', breath: 'breath', spells: 'spells' };
+            const vals = Object.values(itemSave);
+            const same = vals.every(v => v === vals[0]);
+            const text = !vals.some(Boolean) ? '' : same ? `Includes +${vals[0]} from magic items worn.`
+                : `Includes from magic items worn: ${Object.entries(itemSave).filter(([, v]) => v).map(([k, v]) => `+${v} ${labels[k]}`).join(', ')}.`;
+            note.textContent = text; note.style.display = text ? 'block' : 'none';
+        }
 
         if (saves) {
             document.getElementById('save-death').value = Math.max(2, saves.death);
@@ -365,9 +387,10 @@ function saveChanges() {
 
     if (!currentCharacter.combatDetails) currentCharacter.combatDetails = {};
     currentCharacter.combatDetails.tempHp = Number(document.getElementById('hp-temp').value) || 0;
-    currentCharacter.combatDetails.baseArmor = Number(document.getElementById('ac-base').value) || 9;
+    { const raw = document.getElementById('ac-base').value; currentCharacter.combatDetails.baseArmor = (raw === '' || !Number.isFinite(Number(raw))) ? 9 : Number(raw); }
     currentCharacter.combatDetails.initBonus = Number(document.getElementById('init-bonus').value) || 0;
-    currentCharacter.combatDetails.movementBase = Number(document.getElementById('movement-load').value) || 120;
+    const loadVal = document.getElementById('movement-load').value;
+    currentCharacter.combatDetails.movementBase = loadVal === '' ? 120 : Number(loadVal);
 
     if (!currentCharacter.savingThrows) currentCharacter.savingThrows = {};
     currentCharacter.savingThrows.deathRayPoison = Math.max(2, Number(document.getElementById('save-death').value));
@@ -587,7 +610,8 @@ function loadCharacterToUI(char) {
     safeSetVal('hp-temp', cd.tempHp || 0);
     safeSetVal('ac-base', cd.baseArmor ?? 9);
     safeSetVal('init-bonus', cd.initBonus || 0);
-    safeSetVal('movement-load', cd.movementBase || 120);
+    if (typeof syncMovementLoadOptions === 'function') syncMovementLoadOptions(char);
+    safeSetVal('movement-load', cd.movementBase ?? 120);
 
     if (char.savingThrows) {
         safeSetVal('save-death', char.savingThrows.deathRayPoison ?? 12);

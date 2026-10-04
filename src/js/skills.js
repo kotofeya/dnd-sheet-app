@@ -1,7 +1,8 @@
 // js/skills.js — Полный модуль General Skills
 
 // Descriptions follow the Rules Cyclopedia, Chapter 5 (General Skills), where it has the skill; the others come from
-// GAZ5 The Elves of Alfheim, Dawn of the Emperors (Players' Guide to Thyatis) and GAZ13 The Shadow Elves.
+// GAZ5 The Elves of Alfheim, GAZ6 The Dwarves of Rockhome, GAZ10 The Orcs of Thar, GAZ11 The Republic of Darokin,
+// Dawn of the Emperors (Players' Guide to Thyatis) and GAZ13 The Shadow Elves.
 // SKILL_REFS (below) credits every skill to the earliest of these books.
 const GENERAL_SKILLS_DATABASE = {
     // Strength
@@ -129,132 +130,247 @@ const GENERAL_SKILLS_DATABASE = {
 
     // Charisma
     'gain_trust': { name: 'Gain Trust', ability: 'charisma', desc: 'Win an NPC\'s trust through courtesy, respect for tradition and honourable behaviour; he treats you as trustworthy until given solid evidence otherwise. Enough by itself in routine situations (an inn, a farmstead); against hostile or wary NPCs the DM applies penalties or an opposed roll against the NPC\'s Wisdom.' },
+    // ---- GAZ10 The Orcs of Thar (humanoid skills) ----
+    'war_machine_engineering': { name: 'War Machine Engineering', ability: 'intelligence', desc: 'Manoeuvre a war machine and use its weapons, and command its crew to get the best out of it: +1 to the morale of the war machine\'s crew. Building one takes weeks or months, depending on its size and the materials at hand.' },
+    'executioner': { name: 'Executioner', ability: 'wisdom', desc: 'The sinister art of making a prisoner talk, or frightening him into it. The victim can ignore a successful check by making a morale check (monsters and NPCs) or a Bravery check (characters).' },
+    'tribal_healing': { name: 'Tribal Healing', ability: 'wisdom', desc: 'Tribal medicine (GAZ10 calls it Healing, on Wisdom). A companion below 0 hp loses no more than 1 hp a day; someone at 0 hp or more heals 1 hp a day. A check is needed to cure a natural disease; it does nothing against magical ones.' },
+    'monster_empathy': { name: 'Monster Empathy', ability: 'wisdom', hasSpec: true, specLabel: 'Monster Type', desc: 'Sense and communicate basic feelings with one type of monster within 100\'. Each attempt needs a check, at -1 per Hit Die the monster has over you. Goblin tribal secret.' },
+    'monster_training': { name: 'Monster Training', ability: 'wisdom', hasSpec: true, specLabel: 'Monster Type', desc: 'Raise, train and care for one type of monster of animal intelligence and teach it simple tricks or orders. A check each time it is used for anything significant, at -1 per Hit Die it has over its trainer.' },
+    'outdoor_stealth': { name: 'Outdoor Stealth', ability: 'dexterity', hasSpec: true, specLabel: 'Terrain', desc: 'Like a thief\'s Hide in Shadows, but usable outdoors in full daylight in one terrain: caverns, grassy plains or hills, broken terrain, or city streets. Red orc tribal secret.' },
+    'odor_scenting': { name: 'Odor Scenting', ability: 'dexterity', desc: 'Identify smells and their source; faint smells need a check. Gives +1 to Tracking and to Blind Shooting.' },
+    'fighting_frenzy': { name: 'Fighting Frenzy', ability: 'constitution', desc: 'Keep fighting after being reduced to 0 hp or less: a check each round you fight below 0 hp. You collapse when a check fails or the fight ends. Bugbear tribal secret.' },
+    'sleeping': { name: 'Sleeping', ability: 'constitution', desc: 'Sleep through anything: a successful check lets you sleep through a brawl or a battle. Handy for shamans who need rest and meditation. Troll tribal secret.' },
+    'bawling': { name: 'Bawling', ability: 'charisma', desc: 'Shouting and verbal abuse to bully an NPC into doing what you want: on a success an NPC with fewer Hit Dice obeys. NPCs with as many HD or levels or more may ignore it with a morale or Bravery check. +1 to Commanding Troops, rising with each improvement. The Charisma version of Intimidation.' },
+    'servility': { name: 'Servility', ability: 'charisma', desc: 'Grovel and look so pitiful that a tormentor or foe leaves you alone or spares your life for another day. With a success and a fitting penalty they might even let you go (but not your party). Works on NPCs only; role-play it.' },
+    'singing_marches': { name: 'Singing Marches', ability: 'charisma', desc: 'Marching songs for horde leaders: +1 to your troops\' morale, and on a successful check the whole troop joins in, giving the enemy -1 to morale. Drinking songs count too: a success gives a bonus to reaction rolls.' },
+
+    // ---- GAZ11 The Republic of Darokin (trades and merchant skills) ----
+    'advocacy': { name: 'Advocacy', ability: 'wisdom', desc: 'Argue a criminal case in court. More specialised and more effective there than Lawyer (Law and Justice) or Persuasion; it will not make a judge ignore obvious facts, but it can decide a typical trial.' },
+    'appraisal': { name: 'Appraisal', ability: 'intelligence', desc: 'Judge the value of an object; the DM gives a bonus for familiar goods and a penalty for ones wholly new to you. In GAZ11\'s trade rules a failed roll misjudges a cargo\'s value by 5% for each point you missed by. Darokin racial specialty of halflings.' },
+    'armorer': { name: 'Armorer', ability: 'intelligence', desc: 'Design, make and maintain armour, and understand the protection each type gives, including its weak points. Darokin racial specialty of dwarves.' },
+    'bargemaking': { name: 'Bargemaking', ability: 'intelligence', desc: 'Design and build barges for rivers and small lakes (they are not built for rough water). The DM sets the time from the supplies, labour and conditions available.' },
+    'barrelmaking': { name: 'Barrelmaking', ability: 'intelligence', desc: 'Make barrels, a trade much in demand in small villages, and spot poor workmanship in barrels you buy.' },
+    'blacksmithing': { name: 'Blacksmithing', ability: 'intelligence', desc: 'Work a forge and make tools and implements of iron, steel and similar metals; also repair broken or damaged metal items. Darokin racial specialty of dwarves.' },
+    'bowyer': { name: 'Bowyer', ability: 'intelligence', desc: 'Make bows and other archery gear, and judge the workmanship and value of any bow you come across. Darokin racial specialty of elves.' },
+    'brewing': { name: 'Brewing', ability: 'intelligence', desc: 'Brew beers, ales, liquors and wines, and judge alcoholic drinks well enough to spot a vintage worth selling elsewhere. Darokin racial specialty of halflings.' },
+    'cabinetmaking': { name: 'Cabinetmaking', ability: 'intelligence', desc: 'Make furniture; you also spot hidden compartments and the like more easily than others (though not as well as a thief). Darokin racial specialty of halflings.' },
+    'canvasmaking': { name: 'Canvasmaking', ability: 'intelligence', desc: 'Make sturdy canvas from hemp and cotton; in Darokin\'s ports it means a career in the sail-making trade.' },
+    'cartmaking': { name: 'Cartmaking', ability: 'intelligence', desc: 'Build carts and similar vehicles, and repair and maintain existing ones.' },
+    'cobbler': { name: 'Cobbler', ability: 'intelligence', desc: 'Make and repair shoes and boots: keeping a party\'s footwear in order keeps them fast and comfortable on long marches. Darokin racial specialty of dwarves.' },
+    'drayer': { name: 'Drayer', ability: 'intelligence', desc: 'Load carts and wagons so the cargo neither shifts nor gets damaged on an overland trip; caravans hire drayers to set up and travel with them.' },
+    'drover': { name: 'Drover', ability: 'intelligence', desc: 'Drive herds of animals where they are meant to go, and direct teams pulling very heavy loads.' },
+    'farming': { name: 'Farming', ability: 'intelligence', desc: 'Raise crops and run a farm, one of the commonest skills in the Darokin countryside. (The Rules Cyclopedia treats farming as a type of Labor.)' },
+    'finance': { name: 'Finance', ability: 'intelligence', desc: 'The finer points of money: letters of credit, loans, trusts, partnerships, interest rates. Moneylenders and the accounting branches of merchant houses hire people with this skill.' },
+    'fletching': { name: 'Fletching', ability: 'intelligence', desc: 'Make arrows and crossbow bolts, usually marked so the maker (or, if made to order, the buyer) can be identified. Darokin racial specialty of elves.' },
+    'gemcutting': { name: 'Gemcutting', ability: 'intelligence', desc: 'Split large gems into smaller ones for jewellery, or improve a stone\'s look; it can also disguise a stolen gem by cutting it up. Darokin racial specialty of dwarves.' },
+    'glassblowing': { name: 'Glassblowing', ability: 'dexterity', desc: 'A rare talent: make glassware for daily use or as works of art. Darokin glass is among the finest in the Known World. Darokin racial specialty of elves.' },
+    'jeweler': { name: 'Jeweler', ability: 'intelligence', desc: 'Make fine jewellery and ornaments; Darokinian jewellers are among the best in the Known World and live well. Darokin racial specialty of dwarves.' },
+    'leatherworking': { name: 'Leatherworking', ability: 'dexterity', desc: 'Design, make and repair leather goods, cure hides, and judge the quality and value of leather items. Darokin racial specialty of elves.' },
+    'lumberjack': { name: 'Lumberjack', ability: 'strength', desc: 'Fell trees and cut them into raw timber; respected work around Alfheim. Finished goods are for cabinetmakers, woodworkers and cartmakers.' },
+    'mining': { name: 'Mining', ability: 'intelligence', desc: 'More than knowing how a mine is built and run: judge the best place for a mine and find ore where less skilled miners think it is worked out. Every dwarf of Rockhome learns Mining and Engineering (GAZ6). Darokin racial specialty of dwarves. (The Rules Cyclopedia treats mining as a type of Labor.)' },
+    'negotiating': { name: 'Negotiating', ability: 'intelligence', desc: 'Set up and close complex business deals and political agreements, combining economics, law and logic. Large business transactions call for this rather than Bargaining.' },
+    'netmaking': { name: 'Netmaking', ability: 'dexterity', desc: 'Make and repair nets for fishing and the like; a skilled netmaker can make snares strong enough for powerful beasts or even magical monsters.' },
+    'potter': { name: 'Potter', ability: 'dexterity', desc: 'Make everyday pottery or fine works of art, and judge other potters\' work.' },
+    'ropemaking': { name: 'Ropemaking', ability: 'dexterity', desc: 'Make anything from heavy hemp rope to fine silk cord, and inspect a rope before use to find weak points that would otherwise go unnoticed until too late.' },
+    'saddlemaking': { name: 'Saddlemaking', ability: 'intelligence', desc: 'Make saddles, saddlebags, bridles and other riding gear, for unusual mounts too if you can study the beast first.' },
+    'shepherd': { name: 'Shepherd', ability: 'intelligence', desc: 'Keep a flock of domestic animals within an area (where a drover moves herds along a trail).' },
+    'spinning': { name: 'Spinning', ability: 'dexterity', desc: 'Spin fine thread, yarn and cord; with Weaving you can also turn it into cloth.' },
+    'stonecutting': { name: 'Stonecutting', ability: 'intelligence', desc: 'Work stone, from rough block construction to finely detailed carving. Darokin racial specialty of dwarves. (The Rules Cyclopedia treats stonecutting as a type of Labor.)' },
+    'tailor': { name: 'Tailor', ability: 'intelligence', desc: 'Make clothing from thread and cloth; a master tailor\'s fine apparel is valuable and sought after by the rich. Darokin racial specialty of halflings.' },
+    'toolmaking': { name: 'Toolmaking', ability: 'intelligence', desc: 'Make tools such as hammers and vices, and understand "how things work": by watching a process you can often devise a new tool to save time or improve quality.' },
+    'trapbuilding': { name: 'Trapbuilding', ability: 'intelligence', desc: 'Build security devices against thieves; it also gives a small chance to spot and disarm traps (no substitute for a thief, and the DM should use it carefully). Darokin racial specialty of dwarves and halflings.' },
+    'wagonmaking': { name: 'Wagonmaking', ability: 'intelligence', desc: 'Build and repair wagons; nearly every big caravan takes a wagonmaker along in case of a major breakdown.' },
+    'weaponsmithing': { name: 'Weaponsmithing', ability: 'intelligence', desc: 'Make weapons, including your own; a skilled weaponsmith is sought out by adventurers wanting the finest arms. Darokin racial specialty of dwarves.' },
+    'weaving': { name: 'Weaving', ability: 'dexterity', desc: 'Weave thread and yarn into fabric or cloth; many weavers also have the Tailor skill.' },
+    'wheelwright': { name: 'Wheelwright', ability: 'intelligence', desc: 'Make wheels and wheeled vehicles; a perfectly balanced wheel is rare and valuable.' },
+    'woodworking': { name: 'Woodworking', ability: 'intelligence', desc: 'Make fine art or useful items from many woods, with carving and a wide range of carpentry. Darokinian woodworkers are among the best in the Known World. Darokin racial specialty of elves.' },
 };
 
 // Books the general skills come from, oldest first. A skill found in several books is credited to the
 // earliest; the others are listed as "also in". The descriptions follow the Rules Cyclopedia where it has
 // the skill, otherwise the book that introduced it.
+// Release dates (year, month) from the Mystara Collector's Guide, so books of the same year sort right.
 const SKILL_BOOKS = {
-    GAZ5:  { short: 'GAZ5',  title: 'GAZ5 The Elves of Alfheim', year: 1988 },
-    DotE:  { short: 'DotE',  title: 'Dawn of the Emperors: Players\' Guide to Thyatis', year: 1989 },
-    GAZ13: { short: 'GAZ13', title: 'GAZ13 The Shadow Elves', year: 1990 },
-    RC:    { short: 'RC',    title: 'Rules Cyclopedia', year: 1991 },
+    GAZ5:  { short: 'GAZ5',  title: 'GAZ5 The Elves of Alfheim', year: 1988.02 },
+    GAZ6:  { short: 'GAZ6',  title: 'GAZ6 The Dwarves of Rockhome', year: 1988.04 },
+    GAZ10: { short: 'GAZ10', title: 'GAZ10 The Orcs of Thar', year: 1988.12 },
+    GAZ11: { short: 'GAZ11', title: 'GAZ11 The Republic of Darokin', year: 1989.02 },
+    DotE:  { short: 'DotE',  title: 'Dawn of the Emperors: Players\' Guide to Thyatis', year: 1989.07 },
+    GAZ13: { short: 'GAZ13', title: 'GAZ13 The Shadow Elves', year: 1990.05 },
+    RC:    { short: 'RC',    title: 'Rules Cyclopedia', year: 1991.10 },
 };
-// key: [[book, page, name used there (if different)], ...]
+// key: [[book, page, name used there (if different), or '~note'], ...]
 const SKILL_REFS = {
     // Strength
-    intimidation: [['DotE', 21, 'Intimidate'], ['RC', 83]],
-    muscle: [['DotE', 21], ['GAZ13', 17], ['RC', 83]],
+    intimidation: [['DotE', 21, 'Intimidate'], ['RC', 83], ['GAZ10', 35, 'Intimidate']],
+    muscle: [['DotE', 21], ['GAZ13', 17], ['RC', 83], ['GAZ10', 35]],
     wrestling: [['DotE', 21], ['RC', 84]],
-    brawling: [['GAZ13', 17]],
+    brawling: [['GAZ13', 17], ['GAZ10', 35]],
     // Intelligence
     acting_int: [['GAZ13', 17, 'Acting']],
     alchemy: [['GAZ13', 17], ['RC', 81]],
     alternate_magics: [['GAZ13', 17], ['RC', 82]],
     ancient_history: [['GAZ13', 17]],
     art_int: [['RC', 82]],
-    artillery: [['GAZ13', 17], ['RC', 82]],
+    artillery: [['GAZ13', 17], ['RC', 82], ['GAZ10', 35]],
     boating: [['GAZ5', 51, 'Boat Handling'], ['GAZ13', 17]],
-    craft: [['GAZ5', 49, 'Craftsman'], ['DotE', 21, 'Craftsman'], ['GAZ13', 17], ['RC', 82]],
+    craft: [['GAZ5', 49, 'Craftsman'], ['DotE', 21, 'Craftsman'], ['GAZ13', 17], ['RC', 82], ['GAZ6', 15, 'Craftsman'], ['GAZ10', 35, 'Craftsman']],
     disguise: [['GAZ13', 18], ['RC', 82]],
-    engineering: [['GAZ13', 17, 'a Profession'], ['RC', 82]],
-    fire_building: [['RC', 82]],
+    engineering: [['GAZ13', 17, '~as a Profession'], ['RC', 82], ['GAZ6', 16, '~required of every dwarf'], ['GAZ10', 35, 'Stone Engineering'], ['GAZ11', 9, 'Building']],
+    fire_building: [['RC', 82], ['GAZ10', 35]],
     healing: [['RC', 82]],
     doctor: [['DotE', 21]],
     helmsman_captain: [['GAZ13', 18]],
     hiding: [['GAZ5', 50]],
     hunting: [['RC', 83]],
     know_terrain: [['GAZ13', 18]],
-    knowledge: [['GAZ5', 50], ['DotE', 21], ['RC', 83]],
+    knowledge: [['GAZ5', 50], ['DotE', 21], ['RC', 83], ['GAZ6', 15], ['GAZ10', 35]],
     magic_lore: [['GAZ5', 50]],
     tree_of_life_lore: [['GAZ5', 50]],
-    labor: [['GAZ5', 50], ['DotE', 21], ['RC', 83]],
-    language: [['DotE', 23, 'optional rule'], ['RC', 83]],
+    labor: [['GAZ5', 50], ['DotE', 21], ['RC', 83], ['GAZ6', 15]],
+    language: [['DotE', 23, '~optional rule'], ['RC', 83], ['GAZ10', 38, '~costs a skill choice']],
     lip_reading: [['DotE', 21], ['RC', 83]],
     magical_engineering: [['RC', 83]],
-    mapping: [['DotE', 22, 'Mapping (Cartography)'], ['GAZ13', 18], ['RC', 83]],
-    military_tactics: [['GAZ5', 50], ['DotE', 22], ['GAZ13', 18, 'Tactics'], ['RC', 83]],
-    mimicry: [['DotE', 22], ['GAZ13', 20, 'Sound Imitation'], ['RC', 83]],
+    mapping: [['DotE', 22, 'Mapping (Cartography)'], ['GAZ13', 18], ['RC', 83], ['GAZ10', 35]],
+    military_tactics: [['GAZ5', 50], ['DotE', 22], ['GAZ13', 18, 'Tactics'], ['RC', 83], ['GAZ6', 16], ['GAZ10', 35, 'Tactics']],
+    mimicry: [['DotE', 22], ['GAZ13', 20, 'Sound Imitation'], ['RC', 83], ['GAZ10', 38, 'Sound Imitation']],
     nature_lore: [['GAZ13', 18], ['RC', 83]],
-    navigation: [['DotE', 22], ['GAZ13', 18], ['RC', 83]],
+    navigation: [['DotE', 22], ['GAZ13', 18], ['RC', 83], ['GAZ11', 11]],
     non_elvish_cultures: [['GAZ13', 18]],
     planar_geography: [['RC', 84]],
-    profession: [['GAZ5', 50], ['DotE', 22], ['GAZ13', 17], ['RC', 84]],
+    profession: [['GAZ5', 50], ['DotE', 22], ['GAZ13', 17], ['RC', 84], ['GAZ6', 15]],
     read_write_language: [['GAZ13', 18]],
-    science: [['GAZ5', 50], ['DotE', 22], ['RC', 84]],
-    shipbuilding: [['GAZ13', 17, 'Ship Building (craft)'], ['RC', 84]],
-    signaling: [['DotE', 22, 'Signalling'], ['GAZ13', 18], ['RC', 84]],
-    snares: [['GAZ13', 18], ['RC', 84]],
+    science: [['GAZ5', 50], ['DotE', 22], ['RC', 84], ['GAZ6', 15]],
+    shipbuilding: [['GAZ13', 17, 'Ship Building (craft)'], ['RC', 84], ['GAZ11', 11]],
+    signaling: [['DotE', 22, 'Signalling'], ['GAZ13', 18], ['RC', 84], ['GAZ10', 35]],
+    snares: [['GAZ13', 18], ['RC', 84], ['GAZ10', 36]],
     song_writing: [['GAZ5', 51]],
-    survival: [['GAZ5', 51, 'Forest Survival'], ['DotE', 22], ['GAZ13', 18], ['RC', 84]],
-    tracking: [['GAZ5', 49], ['DotE', 22], ['GAZ13', 18], ['RC', 84]],
+    survival: [['GAZ5', 51, 'Forest Survival'], ['DotE', 22], ['GAZ13', 18], ['RC', 84], ['GAZ6', 15], ['GAZ10', 36]],
+    tracking: [['GAZ5', 49], ['DotE', 22], ['GAZ13', 18], ['RC', 84], ['GAZ6', 15], ['GAZ10', 36]],
     veterinary_healing: [['DotE', 21, 'Veterinarian (mentioned)'], ['RC', 84]],
     // Wisdom
     animal_empathy: [['GAZ5', 51]],
-    animal_training: [['GAZ5', 51, 'Animal Trainer'], ['DotE', 22, 'Animal Trainer'], ['GAZ13', 18], ['RC', 82]],
+    animal_training: [['GAZ5', 51, 'Animal Trainer'], ['DotE', 22, 'Animal Trainer'], ['GAZ13', 18], ['RC', 82], ['GAZ10', 37], ['GAZ11', 9]],
     art_wis: [['RC', 82]],
-    bravery: [['GAZ13', 18], ['RC', 82]],
-    caving: [['DotE', 22], ['GAZ13', 18, 'Orientation in Caves'], ['RC', 82]],
+    bravery: [['GAZ13', 18], ['RC', 82], ['GAZ10', 37]],
+    caving: [['DotE', 22], ['GAZ13', 18, 'Orientation in Caves'], ['RC', 82], ['GAZ6', 15], ['GAZ10', 35, 'Orientation']],
     ceremony: [['DotE', 23, 'Honor (Specific Immortal)'], ['RC', 82]],
-    cooking: [['GAZ13', 18]],
-    danger_sense: [['DotE', 22], ['GAZ13', 18], ['RC', 82]],
+    cooking: [['GAZ13', 18], ['GAZ10', 37]],
+    danger_sense: [['DotE', 22], ['GAZ13', 18], ['RC', 82], ['GAZ10', 37, 'Instinct']],
     detect_deception: [['DotE', 22], ['GAZ13', 19], ['RC', 82]],
     first_aid: [['GAZ13', 19]],
-    gambling: [['DotE', 22], ['RC', 82]],
-    guidance_counsel: [['DotE', 23]],
-    law_justice: [['GAZ5', 51, 'Lore of Law and Justice'], ['DotE', 22, 'Codes of Law and Justice'], ['GAZ13', 18, 'Codes of Law and Justice'], ['RC', 83]],
-    mysticism: [['RC', 83]],
+    gambling: [['DotE', 22], ['RC', 82], ['GAZ6', 15], ['GAZ10', 38, '~on Charisma'], ['GAZ11', 10, '~on Intelligence']],
+    guidance_counsel: [['DotE', 23], ['GAZ6', 15]],
+    law_justice: [['GAZ5', 51, 'Lore of Law and Justice'], ['DotE', 22, 'Codes of Law and Justice'], ['GAZ13', 18, 'Codes of Law and Justice'], ['RC', 83], ['GAZ6', 15, 'Codes of Law and Justice'], ['GAZ11', 10, 'Lawyer']],
+    mysticism: [['RC', 83], ['GAZ10', 37]],
     natural_healing: [['GAZ13', 19]],
-    teaching: [['GAZ5', 51], ['GAZ13', 19]],
+    teaching: [['GAZ5', 51], ['GAZ13', 19], ['GAZ6', 15], ['GAZ10', 37]],
     // Dexterity
     acrobatics: [['DotE', 23], ['RC', 81]],
-    alertness: [['DotE', 23], ['GAZ13', 19], ['RC', 81]],
-    blind_shooting: [['GAZ13', 19], ['RC', 82]],
-    cheating: [['DotE', 23, 'Cheating/Gambling'], ['RC', 82]],
+    alertness: [['DotE', 23], ['GAZ13', 19], ['RC', 81], ['GAZ10', 37]],
+    blind_shooting: [['GAZ13', 19], ['RC', 82], ['GAZ10', 37]],
+    cheating: [['DotE', 23, 'Cheating/Gambling'], ['RC', 82], ['GAZ6', 15, 'Cheating/Gambling']],
     dancing: [['GAZ5', 51], ['GAZ13', 19]],
     escape: [['RC', 82]],
-    escape_artist: [['GAZ13', 19]],
+    escape_artist: [['GAZ13', 19], ['GAZ10', 37]],
     evade: [['GAZ13', 19]],
-    find_traps: [['GAZ13', 19]],
-    hear_noise: [['GAZ13', 19]],
-    hide_in_shadows: [['GAZ13', 19]],
-    juggling: [['GAZ13', 19]],
+    find_traps: [['GAZ13', 19], ['GAZ10', 38]],
+    hear_noise: [['GAZ13', 19], ['GAZ10', 38]],
+    hide_in_shadows: [['GAZ13', 19], ['GAZ10', 38]],
+    juggling: [['GAZ13', 19], ['GAZ6', 15]],
     jump: [['GAZ13', 20]],
-    ledge_hopping: [['GAZ13', 20]],
-    martial_arts: [['GAZ13', 20]],
-    mountaineering: [['DotE', 23], ['GAZ13', 19, 'Climbing'], ['RC', 83]],
-    move_silently: [['GAZ13', 20]],
-    piloting: [['RC', 84]],
+    ledge_hopping: [['GAZ13', 20], ['GAZ10', 38]],
+    martial_arts: [['GAZ13', 20], ['GAZ10', 38]],
+    mountaineering: [['DotE', 23], ['GAZ13', 19, 'Climbing'], ['RC', 83], ['GAZ6', 15, 'Climbing'], ['GAZ10', 37, 'Climbing'], ['GAZ11', 9, 'Climbing']],
+    move_silently: [['GAZ13', 20], ['GAZ10', 38]],
+    piloting: [['RC', 84], ['GAZ11', 11, 'Ship Sailing']],
     quick_draw: [['GAZ13', 20], ['RC', 84]],
     rapid_fire: [['GAZ13', 20]],
-    riding: [['GAZ5', 51], ['DotE', 23], ['GAZ13', 19, 'Horsemanship'], ['RC', 84]],
-    rope_use: [['GAZ13', 20]],
+    riding: [['GAZ5', 51], ['DotE', 23], ['GAZ13', 19, 'Horsemanship'], ['RC', 84], ['GAZ6', 15], ['GAZ10', 38, 'Riding Monster'], ['GAZ11', 11]],
+    rope_use: [['GAZ13', 20], ['GAZ10', 38]],
     skinwing_flying: [['GAZ13', 20]],
     stealth: [['RC', 84]],
-    treewalking: [['GAZ5', 49], ['DotE', 23, 'required for Alfheim elves']],
-    weapon_mastery_skill: [['GAZ13', 20]],
+    treewalking: [['GAZ5', 49], ['DotE', 23, '~required for Alfheim elves']],
+    weapon_mastery_skill: [['GAZ13', 20], ['GAZ10', 38]],
     // Constitution
-    drinking: [['GAZ13', 20]],
-    endurance: [['RC', 82]],
+    drinking: [['GAZ13', 20], ['GAZ10', 38]],
+    endurance: [['RC', 82], ['GAZ10', 38]],
     food_tasting: [['RC', 82]],
-    slow_respiration: [['GAZ13', 20]],
+    slow_respiration: [['GAZ13', 20], ['GAZ10', 38]],
     stamina: [['GAZ13', 20]],
     // Charisma
     acting: [['DotE', 23], ['RC', 81]],
-    bargaining: [['GAZ5', 49], ['DotE', 23], ['GAZ13', 20, 'Bargain'], ['RC', 82]],
+    bargaining: [['GAZ5', 49], ['DotE', 23], ['GAZ13', 20, 'Bargain'], ['RC', 82], ['GAZ6', 15], ['GAZ11', 9, '~on Intelligence']],
     deception: [['DotE', 23, 'Deceive (Fast-Talk)'], ['GAZ13', 20, 'Deceive'], ['RC', 82]],
     gain_trust: [['GAZ13', 20]],
     leadership: [['DotE', 23], ['GAZ13', 20], ['RC', 83]],
-    music: [['GAZ5', 51, 'Instrument Playing'], ['DotE', 23], ['GAZ13', 20], ['RC', 83]],
-    persuasion: [['GAZ5', 51], ['DotE', 23], ['GAZ13', 20, 'Persuade'], ['RC', 83]],
-    singing: [['GAZ5', 50], ['DotE', 23], ['GAZ13', 20], ['RC', 84]],
-    storytelling: [['GAZ5', 51], ['GAZ13', 20, 'Storyteller'], ['RC', 84]],
+    music: [['GAZ5', 51, 'Instrument Playing'], ['DotE', 23], ['GAZ13', 20], ['RC', 83], ['GAZ6', 15]],
+    persuasion: [['GAZ5', 51], ['DotE', 23], ['GAZ13', 20, 'Persuade'], ['RC', 83], ['GAZ6', 15], ['GAZ11', 11]],
+    singing: [['GAZ5', 50], ['DotE', 23], ['GAZ13', 20], ['RC', 84], ['GAZ6', 15]],
+    storytelling: [['GAZ5', 51], ['GAZ13', 20, 'Storyteller'], ['RC', 84], ['GAZ6', 15], ['GAZ10', 38, 'Storyteller']],
+    // GAZ10 The Orcs of Thar
+    war_machine_engineering: [['GAZ10', 35]],
+    executioner: [['GAZ10', 37]],
+    tribal_healing: [['GAZ10', 37, 'Healing']],
+    monster_empathy: [['GAZ10', 37]],
+    monster_training: [['GAZ10', 37]],
+    outdoor_stealth: [['GAZ10', 38]],
+    odor_scenting: [['GAZ10', 38]],
+    fighting_frenzy: [['GAZ10', 38]],
+    sleeping: [['GAZ10', 38]],
+    bawling: [['GAZ10', 38]],
+    servility: [['GAZ10', 38]],
+    singing_marches: [['GAZ10', 38]],
+    // GAZ11 The Republic of Darokin
+    advocacy: [['GAZ11', 9]],
+    appraisal: [['GAZ11', 9]],
+    armorer: [['GAZ11', 9]],
+    bargemaking: [['GAZ11', 9]],
+    barrelmaking: [['GAZ11', 9]],
+    blacksmithing: [['GAZ11', 9]],
+    bowyer: [['GAZ11', 9]],
+    brewing: [['GAZ11', 9]],
+    cabinetmaking: [['GAZ11', 9]],
+    canvasmaking: [['GAZ11', 9]],
+    cartmaking: [['GAZ11', 9]],
+    cobbler: [['GAZ11', 10]],
+    drayer: [['GAZ11', 10]],
+    drover: [['GAZ11', 10]],
+    farming: [['GAZ11', 10]],
+    finance: [['GAZ11', 10]],
+    fletching: [['GAZ11', 10]],
+    gemcutting: [['GAZ11', 10]],
+    glassblowing: [['GAZ11', 10]],
+    jeweler: [['GAZ11', 10]],
+    leatherworking: [['GAZ11', 11]],
+    lumberjack: [['GAZ11', 11]],
+    mining: [['GAZ6', 16, '~required of every dwarf'], ['GAZ11', 11]],
+    negotiating: [['GAZ11', 11]],
+    netmaking: [['GAZ11', 11]],
+    potter: [['GAZ11', 11]],
+    ropemaking: [['GAZ11', 11]],
+    saddlemaking: [['GAZ11', 11]],
+    shepherd: [['GAZ11', 11]],
+    spinning: [['GAZ11', 11]],
+    stonecutting: [['GAZ11', 11]],
+    tailor: [['GAZ11', 11]],
+    toolmaking: [['GAZ11', 11]],
+    trapbuilding: [['GAZ11', 12]],
+    wagonmaking: [['GAZ11', 12]],
+    weaponsmithing: [['GAZ11', 12]],
+    weaving: [['GAZ11', 12]],
+    wheelwright: [['GAZ11', 12]],
+    woodworking: [['GAZ11', 12]],
 };
 
 // The earliest book a skill appears in, and every book that has it.
 function skillReferences(key) {
     const refs = (SKILL_REFS[key] || []).slice().sort((a, b) => (SKILL_BOOKS[a[0]]?.year || 9999) - (SKILL_BOOKS[b[0]]?.year || 9999));
     return refs.map(([book, page, as]) => ({ book, page, as, short: SKILL_BOOKS[book]?.short || book, title: SKILL_BOOKS[book]?.title || book }));
+}
+function skillRefNote(r) {
+    if (!r.as) return '';
+    return r.as.startsWith('~') ? ` (${r.as.slice(1)})` : ` (as ${r.as})`;
 }
 function skillSourceLabel(key) {
     const first = skillReferences(key)[0];
@@ -263,7 +379,7 @@ function skillSourceLabel(key) {
 function skillSourceTitle(key) {
     const refs = skillReferences(key);
     if (!refs.length) return '';
-    const fmt = r => `${r.title}, p. ${r.page}${r.as ? ` (as ${r.as})` : ''}`;
+    const fmt = r => `${r.title}, p. ${r.page}${skillRefNote(r)}`;
     return `First in ${fmt(refs[0])}` + (refs.length > 1 ? `\nAlso in: ${refs.slice(1).map(fmt).join('; ')}` : '');
 }
 
@@ -376,9 +492,65 @@ function toggleSkillDesc(index) {
     if (btn) btn.innerHTML = getIcon(isHidden ? 'up' : 'down', 15);
 }
 
+// How the learned skills are listed (the stored order is kept; only the view is sorted).
+const SKILL_SORTS = [
+    { value: 'learned', label: 'Order learned' },
+    { value: 'name', label: 'Name (A–Z)' },
+    { value: 'nameDesc', label: 'Name (Z–A)' },
+    { value: 'ability', label: 'Ability' },
+    { value: 'target', label: 'Best chance first' },
+    { value: 'slots', label: 'Most slots first' },
+    { value: 'source', label: 'Book' },
+];
+const SKILL_ABILITY_ORDER = ['strength', 'intelligence', 'wisdom', 'dexterity', 'constitution', 'charisma'];
+
+function skillDisplayName(s) { return s.subType ? `${s.name} (${s.subType})` : (s.name || ''); }
+
+// Chance in percent, so ability rolls (d20) and thief percentages compare fairly.
+function skillChancePct(item) {
+    const key = item.ability || 'intelligence';
+    const score = typeof getEffectiveScore === 'function' ? getEffectiveScore(currentCharacter, key) : (Number(currentCharacter.abilities?.[key]?.score) || 10);
+    const slots = Number(item.slots) || 1;
+    const thiefDef = !item.isCustom && GENERAL_SKILLS_DATABASE[item.skillId]?.thief;
+    const thief = thiefDef ? thiefSkillChance(currentCharacter, thiefDef, slots) : null;
+    return thief ? thief.value : Math.max(5, Math.min(19, score + slots - 1)) * 5;
+}
+
+function skillSortOrder(skills, mode) {
+    const idx = skills.map((_, i) => i);
+    const byName = (a, b) => skillDisplayName(skills[a]).localeCompare(skillDisplayName(skills[b]));
+    const bookRank = i => {
+        const s = skills[i];
+        if (s.isCustom) return 99999;
+        const first = skillReferences(s.skillId)[0];
+        return first ? (SKILL_BOOKS[first.book]?.year || 9999) : 9999;
+    };
+    if (mode === 'name') idx.sort(byName);
+    else if (mode === 'nameDesc') idx.sort((a, b) => byName(b, a));
+    else if (mode === 'ability') idx.sort((a, b) => (SKILL_ABILITY_ORDER.indexOf(skills[a].ability || 'intelligence') - SKILL_ABILITY_ORDER.indexOf(skills[b].ability || 'intelligence')) || byName(a, b));
+    else if (mode === 'target') idx.sort((a, b) => (skillChancePct(skills[b]) - skillChancePct(skills[a])) || byName(a, b));
+    else if (mode === 'slots') idx.sort((a, b) => ((Number(skills[b].slots) || 1) - (Number(skills[a].slots) || 1)) || byName(a, b));
+    else if (mode === 'source') idx.sort((a, b) => (bookRank(a) - bookRank(b)) || byName(a, b));
+    return idx;
+}
+
+function setSkillSort(mode) {
+    if (!currentCharacter) return;
+    if (mode === 'learned') delete currentCharacter.skillSort; else currentCharacter.skillSort = mode;
+    if (typeof debouncedSave === 'function') debouncedSave();
+    renderSkillsGrid();
+}
+window.setSkillSort = setSkillSort;
+
 function renderSkillsGrid() {
     const grid = document.getElementById('skills-grid');
     if (!grid || !currentCharacter) return;
+    const sortMode = SKILL_SORTS.some(o => o.value === currentCharacter.skillSort) ? currentCharacter.skillSort : 'learned';
+    const sortSel = document.getElementById('skill-sort');
+    if (sortSel) {
+        if (!sortSel.options.length) sortSel.innerHTML = SKILL_SORTS.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+        sortSel.value = sortMode;
+    }
 
     grid.innerHTML = '';
     const skills = currentCharacter.skills || [];
@@ -388,7 +560,8 @@ function renderSkillsGrid() {
         return;
     }
 
-    skills.forEach((item, index) => {
+    skillSortOrder(skills, sortMode).forEach(index => {
+        const item = skills[index];
         const abilityKey = item.ability || 'intelligence';
         const abilityScore = typeof getEffectiveScore === 'function' ? getEffectiveScore(currentCharacter, abilityKey) : (Number(currentCharacter.abilities?.[abilityKey]?.score) || 10);
         const slotsSpent = Number(item.slots) || 1;
@@ -411,7 +584,7 @@ function renderSkillsGrid() {
         row.innerHTML = `
             <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
                 <span class="ledger-name">${escapeHtml(displayName)}</span>
-                ${item.isCustom || freeRanks || srcLabel ? `<span>${srcLabel ? `<span class="tag skill-src" title="${escapeHtml(skillSourceTitle(item.skillId))}">${escapeHtml(srcLabel)}</span> ` : ''}${item.isCustom ? '<span class="tag" style="color: var(--info);">Homebrew</span> ' : ''}${freeRanks ? `<span class="tag" style="color: var(--good);" title="${freeRanks} rank${freeRanks > 1 ? 's' : ''} granted free: no slot used">${freeRanks >= slotsSpent ? 'Granted' : `${freeRanks} granted`}${item.freeSource ? ' · ' + escapeHtml(item.freeSource) : ''}</span>` : ''}</span>` : ''}
+                ${item.isCustom || freeRanks || srcLabel ? `<span class="ledger-tags">${srcLabel ? `<span class="tag skill-src" title="${escapeHtml(skillSourceTitle(item.skillId))}">${escapeHtml(srcLabel)}</span> ` : ''}${item.isCustom ? '<span class="tag" style="color: var(--info);">Homebrew</span> ' : ''}${freeRanks ? `<span class="tag" style="color: var(--good);" title="${freeRanks} rank${freeRanks > 1 ? 's' : ''} granted free: no slot used">${freeRanks >= slotsSpent ? 'Granted' : `${freeRanks} granted`}${item.freeSource ? ' · ' + escapeHtml(item.freeSource) : ''}</span>` : ''}</span>` : ''}
             </div>
             <span class="rank-seal" style="width: 40px; font-size: 0.7rem;" title="${escapeHtml(abilityKey)}">${abilityAbbr}</span>
             ${thiefChance ? `<span class="ledger-num rubric" title="Percentile roll: as a level ${thiefChance.level} thief (GAZ13)">${thiefChance.value}%</span>`
@@ -422,7 +595,7 @@ function renderSkillsGrid() {
                 <button type="button" class="icon-btn" onclick="upgradeSkillSlot(${index})" title="Spend a slot (+1 target)" aria-label="Spend a slot on ${escapeHtml(displayName)}">${getIcon('up', 15)}</button>
             </div>
             <div class="ledger-note" id="skill-desc-${index}">${escapeHtml(descText)}</div>
-            <div class="ledger-actions"><button type="button" class="icon-btn danger" onclick="removeSkill(${index})" title="Forget skill" aria-label="Forget ${escapeHtml(displayName)}">${getIcon('close', 15)}</button></div>
+            <div class="ledger-actions"><button type="button" class="icon-btn" onclick="editSkillRanks(${index})" title="Edit skill" aria-label="Edit ${escapeHtml(displayName)}">${getIcon('edit', 15)}</button><button type="button" class="icon-btn danger" onclick="removeSkill(${index})" title="Forget skill" aria-label="Forget ${escapeHtml(displayName)}">${getIcon('close', 15)}</button></div>
         `;
         grid.appendChild(row);
     });
@@ -443,7 +616,7 @@ function onSkillSelectionChange() {
 
     if (preview) {
         const refs = skillReferences(skillKey);
-        const refText = refs.length ? `<div style="margin-top: 4px; color: var(--gilt);">${refs.map((r, i) => `${i === 0 ? '<strong>' : ''}${escapeHtml(r.short)} p.${r.page}${r.as ? ` (as ${escapeHtml(r.as)})` : ''}${i === 0 ? '</strong>' : ''}`).join(' · ')}</div>` : '';
+        const refText = refs.length ? `<div style="margin-top: 4px; color: var(--gilt);">${refs.map((r, i) => `${i === 0 ? '<strong>' : ''}${escapeHtml(r.short)} p.${r.page}${escapeHtml(skillRefNote(r))}${i === 0 ? '</strong>' : ''}`).join(' · ')}</div>` : '';
         preview.innerHTML = `<strong>${escapeHtml(skill.name)}</strong> (${skill.ability.toUpperCase()}${skill.thief ? ', thief %' : ''}) — ${escapeHtml(skill.desc)}${refText}`;
     }
 
@@ -634,16 +807,34 @@ async function editSkillRanks(index) {
     const item = currentCharacter?.skills?.[index];
     if (!item || typeof notesFormModal !== 'function') return;
     const name = item.subType ? `${item.name} (${item.subType})` : item.name;
+    const def = !item.isCustom ? GENERAL_SKILLS_DATABASE[item.skillId] : null;
+    const ABIL = ['strength', 'intelligence', 'wisdom', 'dexterity', 'constitution', 'charisma'];
+    // Homebrew skills can be renamed and rewritten; a standard skill's specialty can be corrected.
+    const ownFields = item.isCustom ? [
+        { key: 'name', label: 'Skill name', wide: true, max: 80 },
+        { key: 'ability', label: 'Ability', type: 'select', options: ABIL.map(a => ({ value: a, label: a[0].toUpperCase() + a.slice(1) })) },
+        { key: 'desc', label: 'What it does', type: 'textarea', rows: 3, wide: true },
+    ] : (def && def.hasSpec ? [{ key: 'subType', label: def.specLabel || 'Specialty', wide: true, max: 60 }] : []);
     const res = await notesFormModal({
         title: name,
-        values: { slots: Number(item.slots) || 1, freeSlots: skillFreeRanks(item), freeSource: item.freeSource || '' },
+        values: { slots: Number(item.slots) || 1, freeSlots: skillFreeRanks(item), freeSource: item.freeSource || '', name: item.name, ability: item.ability || 'intelligence', desc: item.desc || '', subType: item.subType === 'General' && def?.specOptional ? '' : (item.subType || '') },
         fields: [
+            ...ownFields,
             { key: 'slots', label: 'Ranks in all (target = ability + ranks − 1)', placeholder: '1' },
             { key: 'freeSlots', label: 'Of which granted free', placeholder: '0' },
             { key: 'freeSource', label: 'Granted by', placeholder: 'e.g. Racial, background, DM award', wide: true, max: 60 },
         ],
     });
     if (!res || res === '__delete__') return;
+    if (item.isCustom) {
+        const newName = (res.name || '').trim();
+        if (!newName) { await sheetAlert('The skill needs a name.'); return; }
+        if (currentCharacter.skills.some(s => s !== item && (s.name || '').toLowerCase() === newName.toLowerCase())) { await sheetAlert('A skill with this name already exists.'); return; }
+    } else if (def && def.hasSpec) {
+        const sub = (res.subType || '').trim() || (def.specOptional ? 'General' : '');
+        if (!sub) { await sheetAlert('Please enter a specialization or type.'); return; }
+        if (currentCharacter.skills.some(s => s !== item && s.skillId === item.skillId && (s.subType || '').toLowerCase() === sub.toLowerCase())) { await sheetAlert('You already have this skill with that specialization.'); return; }
+    }
     const slots = clampInt(res.slots, 1, 20, Number(item.slots) || 1);
     const free = clampInt(res.freeSlots, 0, slots, 0);
     const paidBefore = (Number(item.slots) || 1) - skillFreeRanks(item);
@@ -652,6 +843,8 @@ async function editSkillRanks(index) {
         await sheetAlert(`That needs ${(slots - free) - paidBefore} more skill slot${(slots - free) - paidBefore > 1 ? 's' : ''}, but only ${Math.max(0, left)} ${left === 1 ? 'is' : 'are'} left. Mark more ranks as granted free, or free up a slot.`);
         return;
     }
+    if (item.isCustom) { item.name = res.name.trim().slice(0, 80); if (res.ability) item.ability = res.ability; item.desc = res.desc || ''; }
+    else if (def && def.hasSpec) item.subType = (res.subType || '').trim().slice(0, 60) || (def.specOptional ? 'General' : '');
     item.slots = slots;
     if (free) item.freeSlots = free; else delete item.freeSlots;
     if (free && res.freeSource) item.freeSource = res.freeSource.slice(0, 60); else delete item.freeSource;

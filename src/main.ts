@@ -16,6 +16,28 @@ function createWindow() {
     });
 
     mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
+
+    // Keep a log of the sheet's warnings and errors (app.log next to the saved characters),
+    // so problems can be traced after the fact.
+    const logFile = path.join(app.getPath('userData'), 'app.log');
+    const writeLog = (text: string) => {
+        try {
+            if (fs.existsSync(logFile) && fs.statSync(logFile).size > 1_000_000) fs.renameSync(logFile, logFile + '.old');
+            fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${text}\n`);
+        } catch { /* logging must never break the app */ }
+    };
+    mainWindow.webContents.on('console-message', (...args: any[]) => {
+        const e = args[0] || {};
+        // Newer Electron passes one event object; older versions pass (event, level, message, line, source).
+        const level = e.level ?? args[1];
+        const message = e.message ?? args[2];
+        const line = e.lineNumber ?? args[3];
+        const source = e.sourceId ?? args[4];
+        const isProblem = level === 'warning' || level === 'error' || level === 2 || level === 3;
+        if (isProblem) writeLog(`${String(level).toUpperCase()} ${message} (${String(source || '').split('/').slice(-2).join('/')}:${line})`);
+    });
+    mainWindow.webContents.on('render-process-gone', (_e: any, details: any) => writeLog(`RENDERER GONE ${JSON.stringify(details)}`));
+    writeLog(`Started (version ${app.getVersion()})`);
 }
 
 // One data folder for every way of starting the app. "npm start" (electron ./dist/main.js) has no

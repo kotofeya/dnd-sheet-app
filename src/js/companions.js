@@ -96,6 +96,33 @@ const FAMILIAR_ANIMALS = [
     ['Monkey', 'Acrobatics'], ['Owl', 'Concentration'], ['Rat', 'Sneak'], ['Raven', 'Alertness'], ['Snake', 'Move Silently'],
     ['Squirrel', 'Climb'], ['Tiger', 'Intimidate'], ['Weasel', 'Surprise'],
 ];
+// Statistics of the familiar animals that have a Rules Cyclopedia entry (Chapter 14). The others
+// (cat, dog, falcon, frog, monkey, owl, raven, squirrel, weasel, chameleon) have none in these books.
+const FAMILIAR_STATS = {
+    'Bat':     { hd: '¼', hp: '1', ac: 6, attacks: 'none (a swarm of 10+ confuses)', notes: 'Normal bat: 1 hp; moves 9\' (3\'), flies 120\' (40\'); saves as a normal man; morale 6. Rules Cyclopedia, Bat.' },
+    'Bear':    { hd: 4, ac: 6, attacks: '2 claws 1d3, bite 1d6 (both claws hit: hug 2d8)', notes: 'Black bear: moves 120\' (40\'); saves as F2; morale 7. Rules Cyclopedia, Bear.' },
+    'Horse':   { hd: 2, ac: 7, attacks: '2 hooves 1d4', notes: 'Riding horse: moves 240\' (80\'); saves as F1; morale 7; carries 3,000 cn (6,000 at half speed). Rules Cyclopedia, Horse.' },
+    'Leopard': { hd: 4, ac: 4, attacks: '2 claws 1d4, bite 1d8', notes: 'As a panther: moves 210\' (70\'); saves as F2; morale 8. Rules Cyclopedia, Cat, Great.' },
+    'Lion':    { hd: 5, ac: 6, attacks: '2 claws 1d4+1, bite 1d10', notes: 'Moves 150\' (50\'); saves as F3; morale 9. Rules Cyclopedia, Cat, Great.' },
+    'Rat':     { hd: '¼', hp: '1', ac: 9, attacks: 'bite (1 in 20 chance of disease)', notes: 'Normal rat: 1 hp; moves 60\' (20\'), swims 30\' (10\'); saves as a normal man; morale 5. Rules Cyclopedia, Rat.' },
+    'Snake':   { hd: 2, ac: 6, attacks: 'bite 1d4 + poison', notes: 'As a pit viper (strikes first, poison: save or die): moves 90\' (30\'); saves as F1; morale 7. Rules Cyclopedia, Snake.' },
+    'Tiger':   { hd: 6, ac: 6, attacks: '2 claws 1d6, bite 2d6', notes: 'Moves 150\' (50\'); surprises on 1-4 in woods; saves as F3; morale 9. Rules Cyclopedia, Cat, Great.' },
+};
+// Hit Dice may be fractions: "½", "1/2", "¼", "1/4", or "3+2" (counts as 3).
+function familiarHdValue(v) {
+    const s = String(v ?? '').trim().replace('½', '1/2').replace('¼', '1/4');
+    const frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (frac) return Number(frac[1]) / Math.max(1, Number(frac[2]));
+    const n = parseFloat(s);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+function familiarHdText(v) {
+    const s = String(v ?? '').trim();
+    if (!s) return '';
+    const n = familiarHdValue(s);
+    return n === 0.5 ? '½' : n === 0.25 ? '¼' : s;
+}
+
 // The sheet's own skill for a familiar's gift, where one fits; otherwise a homebrew skill of that name.
 const FAMILIAR_SKILL_MAP = {
     Acrobatics: 'acrobatics', Alertness: 'alertness', Camouflage: 'hiding', Climb: 'mountaineering', Courage: 'bravery',
@@ -216,11 +243,11 @@ function companionRow(c) {
     if (home) tags.push(`At ${home.name}`);
     const stats = [];
     if (c.ac !== undefined && c.ac !== '') stats.push(`AC ${c.ac}`);
-    if (c.hd) stats.push(`${c.hd} HD`);
+    if (c.hd) stats.push(`${familiarHdText(c.hd)} HD`);
     if (c.attacks) stats.push(c.attacks);
     const payText = c.payBasis && c.payBasis !== 'none' && compNum(c.pay)
         ? `${compGp(compNum(c.pay))} ${PAY_BASIS.find(p => p.id === c.payBasis)?.label || ''}${c.kind === 'mercenary' && (compNum(c.count) || 1) > 1 ? ' each' : ''}` : '';
-    const moraleBtn = c.morale ? `<button type="button" class="btn btn-sm comp-morale" onclick="checkCompanionMorale('${c.id}')" title="Roll 2d6: equal to or under the morale score, they stand firm">Morale ${c.morale}</button>` : '';
+    const moraleBtn = c.morale ? `<span class="tag comp-morale" title="Morale: on a 2d6 roll equal to or under it they stand firm (Rules Cyclopedia)">Morale ${c.morale}</span>` : '';
     const skillBtn = c.kind === 'familiar' && c.skill && !c.skillGranted && isActiveCompanion(c)
         ? `<button type="button" class="btn btn-sm" onclick="grantFamiliarSkill('${c.id}')" title="Add ${escapeHtml(c.skill)} to your General Skills as granted (no slot), or +2 if you already have it">Take its skill</button>` : '';
     const xpBtn = c.kind === 'retainer' ? `<button type="button" class="btn btn-sm" onclick="awardCompanionXp('${c.id}')" title="Retainers get a full share of experience (Rules Cyclopedia p. 132)">+ XP</button>` : '';
@@ -280,8 +307,9 @@ function renderCompanions() {
             <span>Wages <strong>${compGp(monthly)}</strong> / month</span>
         </div>
         <div class="arc-actions" style="margin: 8px 0 0;">
-            <button type="button" class="btn btn-sm" onclick="rollRetainerReaction()" title="2d6 + your Charisma reaction adjustment (Rules Cyclopedia p. 132)">Hiring reaction roll</button>
             <button type="button" class="btn btn-sm btn-accent" onclick="payCompanionWages()" ${monthly ? '' : 'disabled'}>Pay a month's wages</button>
+            ${typeof paySourceSelect === 'function' ? paySourceSelect() : ''}
+            ${typeof calendarState === 'function' ? `<label class="arc-check" title="When the calendar reaches a new month, wages and household costs are paid by themselves from the chosen money (for every month that passed)"><input type="checkbox" ${calendarState().settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay automatically each month</label>` : ''}
         </div>
     </div>`;
 
@@ -342,7 +370,7 @@ function companionFields(kind, c) {
             ...HOMUNCULI.map(h => ({ value: `Homunculus: ${h.name}`, label: `Homunculus: ${h.name} (${h.sphere}, ${h.align})` })),
             { value: 'Other', label: 'Other animal' }] },
         { key: 'skill', label: 'Skill it gives you', placeholder: 'from the list, or your own' },
-        { key: 'hd', label: 'Hit Dice', placeholder: 'e.g. 1' },
+        { key: 'hd', label: 'Hit Dice', placeholder: 'e.g. 1, or ½' },
         { key: 'ac', label: 'Armour class', placeholder: 'e.g. 7' }, ...hp,
         { key: 'attacks', label: 'Attacks', placeholder: 'e.g. 2 claws 1d2, bite 1d3' },
         ...(c ? [] : [{ key: 'bind', label: 'Binding cost', type: 'select', options: [
@@ -367,7 +395,7 @@ function companionDefaults(kind) {
     if (kind === 'retainer') return { kind, status: 'with', level: 1, morale: row.morale, payBasis: 'mission', share: 'none', ac: 9 };
     if (kind === 'mercenary') return { kind, status: 'home', troop: MERCENARY_TYPES[0].name, race: 'Human', count: 10, payBasis: 'month', morale: 8 };
     if (kind === 'specialist') return { kind, status: 'home', role: SPECIALIST_TYPES[0][0], payBasis: 'month' };
-    if (kind === 'familiar') return { kind, status: 'with', species: 'Cat', skill: 'Balance', hd: 1, payBasis: 'none' };
+    if (kind === 'familiar') return { kind, status: 'with', species: 'Cat', skill: 'Balance', hd: '', payBasis: 'none' };
     return { kind, status: 'with', payBasis: 'none' };
 }
 
@@ -377,11 +405,13 @@ async function openCompanionEditor(id = null, kind = 'retainer') {
     if (id && !c) return;
     kind = c ? c.kind : kind;
     const values = c ? { ...c, wartime: c.wartime ? '1' : '' } : companionDefaults(kind);
-    const res = await notesFormModal({
+    const pending = notesFormModal({
         title: c ? (c.name || COMPANION_KINDS[kind].label) : `New ${COMPANION_KINDS[kind].label.toLowerCase()}`,
         values: { home: '', ...values }, canDelete: !!c, fields: [...companionFields(kind, c), ...(typeof holdingHomeField === 'function' ? holdingHomeField() : [])],
-        extraHtml: kind === 'familiar' ? `<p class="sub-caption" style="margin-top: 8px;">${escapeHtml(HOMUNCULUS_COMMON)}</p>` : '',
+        extraHtml: kind === 'familiar' ? `<span id="familiar-form-marker" hidden></span><p class="sub-caption" id="familiar-stats-note" style="margin-top: 8px;"></p><p class="sub-caption" style="margin-top: 8px;">${escapeHtml(HOMUNCULUS_COMMON)}</p>` : '',
     });
+    if (kind === 'familiar') { familiarFormFilled = {}; familiarFormSync(!c); }
+    const res = await pending;
     if (res === null) return;
     if (res === '__delete__') {
         if (!(await sheetConfirm(`Remove ${c.name || 'this companion'} from the sheet? (To keep a record, set the status to Dismissed or Dead instead.)`, 'Remove'))) return;
@@ -392,7 +422,8 @@ async function openCompanionEditor(id = null, kind = 'retainer') {
     const num = (v, d = '') => (v === '' || v === undefined) ? d : (Number.isFinite(Number(v)) ? Number(v) : d);
     const out = { ...(c ? {} : companionDefaults(kind)), ...res, kind };   // keep defaults the form does not show (mercenaries are paid monthly)
     if (kind === 'mercenary') out.payBasis = 'month';
-    ['level', 'hpMax', 'hp', 'morale', 'count', 'hd', 'xp'].forEach(k => { if (k in out) out[k] = num(out[k]); });
+    ['level', 'hpMax', 'hp', 'morale', 'count', 'xp', ...(kind === 'familiar' ? [] : ['hd'])].forEach(k => { if (k in out) out[k] = num(out[k]); });
+    if (kind === 'familiar' && 'hd' in out) { const t = String(out.hd).trim(); out.hd = !t ? '' : /^\d+(\.\d+)?$/.test(t) ? Number(t) : familiarHdText(t); }
     if ('ac' in out) out.ac = out.ac === '' ? '' : num(out.ac, '');
     if ('morale' in out && out.morale !== '') out.morale = Math.max(2, Math.min(12, out.morale));
     out.wartime = out.wartime === '1';
@@ -415,7 +446,14 @@ async function openCompanionEditor(id = null, kind = 'retainer') {
     if (!out.home) delete out.home;
     if (c && !out.home) delete c.home;
     const bind = out.bind === '1'; delete out.bind;
+    const familiarDied = c && kind === 'familiar' && c.hpTransferred && c.status !== 'dead' && out.status === 'dead';
     if (c) Object.assign(c, out);
+    if (familiarDied) {
+        const saved = await sheetDialog(`${c.name} has died. Did you make your saving throw vs. death ray?\n\nSuccess: stunned 1 round, and the ${c.hpTransferred} hit points you gave it come back.\nFailure: stunned 2 rounds, those hit points are lost for good, and no new familiar until your next level.`, { confirm: true, okText: 'Saved: hp come back', cancelText: 'Failed: lost for good' });
+        if (saved) familiarShiftHp(c.hpTransferred);
+        compLog(`${c.name} died. ${saved ? `Saved vs. death ray: ${c.hpTransferred} hp returned.` : `Failed the save vs. death ray: ${c.hpTransferred} hp lost for good; no new familiar until the next level.`}`, { companion: c.id });
+        c.hpTransferred = 0;
+    }
     else {
         const nc = { id: compId(), ...out };
         if (bind && kind === 'familiar' && !(await bindFamiliarCost(nc))) return;
@@ -425,11 +463,46 @@ async function openCompanionEditor(id = null, kind = 'retainer') {
     compSave();
 }
 
+// Familiar form: choosing an animal fills in its Rules Cyclopedia statistics (fields you typed yourself are kept).
+let familiarFormFilled = {};
+function familiarFormSync(isNew) {
+    if (!document.getElementById('familiar-form-marker')) return;
+    const sp = document.getElementById('nf-species');
+    const note = document.getElementById('familiar-stats-note');
+    if (!sp) return;
+    const st = FAMILIAR_STATS[sp.value];
+    const set = (key, val) => {
+        const el = document.getElementById('nf-' + key);
+        if (!el) return;
+        // Only overwrite an empty field or one we filled ourselves for the previous animal.
+        if (el.value === '' || el.value === familiarFormFilled[key]) { el.value = val ?? ''; familiarFormFilled[key] = el.value; }
+    };
+    if (isNew !== false) {
+        set('hd', st ? String(st.hd) : '');
+        set('ac', st ? String(st.ac) : '');
+        set('attacks', st ? st.attacks : '');
+        if (st && st.hp) set('hpMax', st.hp);
+        set('notes', st ? st.notes : '');
+    }
+    if (note) note.textContent = st ? `Statistics filled in from the Rules Cyclopedia (${sp.value}); add your level bonuses from the Companions tab.`
+        : sp.value.startsWith('Homunculus') ? '' : `The ${sp.value.toLowerCase()} has no entry in the Rules Cyclopedia: ask your DM for its statistics.`;
+}
+document.addEventListener('change', e => { if (e.target && e.target.id === 'nf-species' && document.getElementById('familiar-form-marker')) familiarFormSync(true); });
+
+// Move hit points between the master and a bound familiar (maximum and current together).
+function familiarShiftHp(delta) {
+    const hpObj = currentCharacter.hitPoints || (currentCharacter.hitPoints = { current: 0, maximum: 0 });
+    hpObj.maximum = Math.max(1, (Number(hpObj.maximum) || 0) + delta);
+    hpObj.current = Math.min(hpObj.maximum, Math.max(delta < 0 ? 0 : -Infinity, (Number(hpObj.current) || 0) + delta));
+    if (typeof safeSetVal === 'function') { safeSetVal('hp-max', hpObj.maximum); safeSetVal('hp-current', hpObj.current); }
+    if (typeof updateCombatVitals === 'function') { try { updateCombatVitals(); } catch (e) { console.error(e); } }
+}
+
 // Pay the binding cost of a new animal familiar (or 10,000 XP for a homunculus).
 async function bindFamiliarCost(f) {
     const ch = currentCharacter;
-    const hd = Math.max(1, compNum(f.hd) || 1);
-    const xpCost = f.homunculus ? 10000 : 300 * hd;
+    const hd = familiarHdValue(f.hd) || 1;                // ½ HD costs 150 XP, ¼ HD 75 XP
+    const xpCost = f.homunculus ? 10000 : Math.round(300 * hd);
     const t = window.ClassesDatabase?.[ch.characterClass]?.xpTable;
     const floor = t ? Number(t[Number(ch.level) || 1]) || 0 : 0;
     const xp = Number(ch.experiencePoints) || 0;
@@ -441,8 +514,11 @@ async function bindFamiliarCost(f) {
     if (!(await sheetConfirm(`Bind ${f.name}: lose ${xpCost.toLocaleString('en-US')} XP permanently${hpLoss ? ` and ${hpLoss} hit point${hpLoss > 1 ? 's' : ''} (1d4), which pass to the familiar` : ''}?`, 'Bind'))) return false;
     ch.experiencePoints = xp - xpCost;
     if (typeof writeXp === 'function') writeXp('char-xp', ch.experiencePoints);
-    if (hpLoss) { f.hpTransferred = hpLoss; f.hpMax = compNum(f.hpMax) + hpLoss; f.hp = compNum(f.hp) + hpLoss; }
-    compLog(`Bound ${f.name} as a familiar: -${xpCost.toLocaleString('en-US')} XP${hpLoss ? `, ${hpLoss} hp passed to it (lower your maximum hit points by ${hpLoss} while it lives)` : ''}.`, { companion: f.id, xp: -xpCost, hp: hpLoss });
+    if (hpLoss) {
+        f.hpTransferred = hpLoss; f.hpMax = compNum(f.hpMax) + hpLoss; f.hp = compNum(f.hp) + hpLoss;
+        familiarShiftHp(-hpLoss);                       // they leave the master at once
+    }
+    compLog(`Bound ${f.name} as a familiar: -${xpCost.toLocaleString('en-US')} XP${hpLoss ? `, ${hpLoss} hp passed to it (taken from your maximum and current hit points)` : ''}.`, { companion: f.id, xp: -xpCost, hp: hpLoss });
     if (typeof updateClassStats === 'function') { try { updateClassStats(); } catch (e) { console.error(e); } }
     return true;
 }
@@ -454,30 +530,6 @@ function adjustCompanionHp(id, delta) {
     const cur = Number(c.hp ?? max) || 0;
     c.hp = max ? Math.min(max, cur + delta) : cur + delta;
     compSave();
-}
-
-// Rules Cyclopedia: roll 2d6; equal to or under the morale score, the retainer stands firm.
-async function checkCompanionMorale(id) {
-    const c = companionsState().find(x => x.id === id);
-    if (!c || !c.morale) return;
-    const roll = compRoll(2, 6);
-    const ok = roll <= Number(c.morale);
-    compLog(`Morale check for ${c.name}: rolled ${roll} against ${c.morale}, ${ok ? 'stands firm' : 'breaks (flees, surrenders or refuses)'}.`, { companion: c.id, roll });
-    await sheetAlert(`${c.name}: rolled ${roll} on 2d6 against morale ${c.morale}.\n${ok ? 'Stands firm.' : 'Fails: flees, surrenders or refuses the order, as the DM decides.'}`);
-    renderCompanions();
-}
-
-// Rules Cyclopedia p. 132, Retainer Reaction Table (2d6 + the employer's Charisma reaction adjustment).
-async function rollRetainerReaction() {
-    const adj = charismaRetainerRow(employerCharisma()).reaction;
-    const dice = compRoll(2, 6);
-    const total = dice + adj;
-    const text = total <= 2 ? 'Refuses, insulted: other candidates nearby react at -1.'
-        : total <= 5 ? 'Refuses.'
-        : total <= 8 ? 'Undecided: roll again (sweeten the offer?).'
-        : total <= 11 ? 'Accepts.'
-        : 'Accepts, impressed: +1 to this retainer\'s morale.';
-    await sheetAlert(`Hiring reaction: ${dice} on 2d6 ${adj >= 0 ? '+' : '−'} ${Math.abs(adj)} (Charisma) = ${total}.\n${text}`);
 }
 
 async function awardCompanionXp(id) {
@@ -500,28 +552,18 @@ async function awardCompanionXp(id) {
 
 async function payCompanionWages() {
     const list = companionsState().filter(c => monthlyCost(c) > 0);
-    const total = list.reduce((s, c) => s + monthlyCost(c), 0);
-    if (!total) return;
-    const coins = currentCharacter.coins || (currentCharacter.coins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 });
-    const purse = (Number(coins.pp) || 0) * 5 + (Number(coins.gp) || 0) + (Number(coins.ep) || 0) / 2 + (Number(coins.sp) || 0) / 10 + (Number(coins.cp) || 0) / 100;
+    const perMonth = list.reduce((s, c) => s + monthlyCost(c), 0);
+    if (!perMonth) return;
+    // Every month since the last payment is owed (at least the current one).
+    const cal = typeof calendarState === 'function' ? calendarState() : null;
+    const months = cal ? Math.max(1, calParts(cal.t).monthAbs - (cal.wagesMonth ?? calParts(cal.t).monthAbs)) : 1;
+    const total = perMonth * months;
+    const src = typeof monthlyPaySource === 'function' ? monthlyPaySource() : 'purse';
     const lines = list.map(c => `${c.name}: ${compGp(monthlyCost(c))}`).join('\n');
-    if (!(await sheetConfirm(`Pay a month's wages, ${compGp(total)} in all, from your purse?\n\n${lines}`, 'Pay'))) return;
-    if (purse + 1e-9 < total) { await sheetAlert(`Your purse holds only ${compGp(purse)}. Move money from the vault first, or pay them some other way.`); return; }
-    // Spend gold first, then platinum, electrum, silver and copper, giving change in copper.
-    let due = Math.round(total * 100);              // in copper pieces
-    const value = { pp: 500, gp: 100, ep: 50, sp: 10, cp: 1 };
-    for (const k of ['gp', 'pp', 'ep', 'sp', 'cp']) {
-        const have = Number(coins[k]) || 0;
-        const use = Math.min(have, Math.ceil(due / value[k]));
-        coins[k] = have - use;
-        due -= use * value[k];
-        if (due <= 0) break;
-    }
-    if (due < 0) {                                   // change back
-        let change = -due;
-        for (const k of ['gp', 'sp', 'cp']) { const n = Math.floor(change / value[k]); coins[k] = (Number(coins[k]) || 0) + n; change -= n * value[k]; }
-    }
-    compLog(`Paid a month's wages: ${compGp(total)} (${list.map(c => c.name).join(', ')}).`, { wages: total });
+    const what = months > 1 ? `${months} months of wages (unpaid since then)` : `a month's wages`;
+    if (!(await sheetConfirm(`Pay ${what}, ${compGp(total)} in all, from your ${typeof paySourceLabel === 'function' ? paySourceLabel(src) : 'purse'}?\n\nEach month:\n${lines}`, 'Pay'))) return;
+    if (!(await holdingsPay(total, src))) return;
+    compLog(`Paid ${what.replace(' (unpaid since then)', '')}: ${compGp(total)} (${list.map(c => c.name).join(', ')}).`, { wages: total, months });
     if (typeof calendarState === 'function') { calendarState().wagesMonth = calParts(calendarState().t).monthAbs; if (typeof renderGameClock === 'function') renderGameClock(); }
     if (typeof syncInventoryUI === 'function') { try { syncInventoryUI(); } catch (e) { console.error(e); } }
     compSave();
@@ -555,6 +597,6 @@ async function grantFamiliarSkill(id) {
 
 Object.assign(window, {
     grantFamiliarSkill,
-    renderCompanions, openCompanionEditor, adjustCompanionHp, checkCompanionMorale, rollRetainerReaction,
+    renderCompanions, openCompanionEditor, adjustCompanionHp,
     awardCompanionXp, payCompanionWages, hirelingFee, charismaRetainerRow, familiarBonuses,
 });

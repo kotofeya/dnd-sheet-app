@@ -20,9 +20,49 @@ function getEquippedSaveBonus(character) {
     const pd = character && character.paperdoll;
     if (!pd) return 0;
     const mystic = (character.characterClass || character.class) === 'Mystic';
-    return PAPERDOLL_SLOTS.reduce((sum, slot) => sum + (mystic && isProtectiveItem(pd[slot]) ? 0 : (Number(pd[slot]?.saveBonus) || 0)), 0);
+    const worn = PAPERDOLL_SLOTS.reduce((sum, slot) => sum + (mystic && isProtectiveItem(pd[slot]) ? 0 : (Number(pd[slot]?.saveBonus) || 0)), 0);
+    return worn + (mystic ? 0 : carriedActiveItems(character).reduce((s, it) => s + (Number(it.saveBonus) || 0), 0));
+}
+// Items that work without being worn ("works while carried"), if they are actually with the character.
+function carriedActiveItems(character) {
+    const away = new Set(['Vault', ...((character && character.holdings) || []).map(h => h.id), ...((character && character.mounts) || []).map(m => m.id)]);
+    return ((character && character.inventory) || []).filter(it => it && it.activeWhileCarried && !it.isArmor && !it.isShield && !away.has(it.location));
 }
 window.getEquippedSaveBonus = getEquippedSaveBonus;
+
+// Bonuses to particular saving throws only (saveBonusBy: { death, wands, paralysis, breath, spells }).
+// The Rules Cyclopedia's displacer cloak gives +2 vs. spells, wands/staves/rods and turn to stone.
+const SAVE_KEYS = ['death', 'wands', 'paralysis', 'breath', 'spells'];
+const KNOWN_SAVE_BONUS_BY = { misc_displacer_cloak: { wands: 2, paralysis: 2, spells: 2 } };
+function itemSaveBonusBy(it) {
+    if (!it) return null;
+    if (it.saveBonusBy && typeof it.saveBonusBy === 'object') return it.saveBonusBy;
+    return KNOWN_SAVE_BONUS_BY[it.catalogId] || null;          // items added before this existed
+}
+function getEquippedSaveBonuses(character) {
+    const out = { death: 0, wands: 0, paralysis: 0, breath: 0, spells: 0 };
+    const all = getEquippedSaveBonus(character);
+    SAVE_KEYS.forEach(k => { out[k] += all; });
+    const pd = (character && character.paperdoll) || {};
+    const mystic = (character && (character.characterClass || character.class)) === 'Mystic';
+    const items = [...PAPERDOLL_SLOTS.map(s => pd[s]), ...(mystic ? [] : carriedActiveItems(character))].filter(Boolean);
+    items.forEach(it => {
+        if (mystic && isProtectiveItem(it)) return;
+        const by = itemSaveBonusBy(it);
+        if (by) SAVE_KEYS.forEach(k => { out[k] += Number(by[k]) || 0; });
+    });
+    return out;
+}
+window.getEquippedSaveBonuses = getEquippedSaveBonuses;
+function saveBonusByTag(it) {
+    const by = itemSaveBonusBy(it);
+    if (!by) return '';
+    const names = { death: 'death', wands: 'wands', paralysis: 'stone', breath: 'breath', spells: 'spells' };
+    const groups = {};
+    SAVE_KEYS.forEach(k => { const v = Number(by[k]) || 0; if (v) (groups[v] = groups[v] || []).push(names[k]); });
+    return Object.entries(groups).map(([v, ks]) => `<span class="tag" style="color: var(--info);" title="Saving throw bonus">Saves +${v} vs ${ks.join(', ')}</span>`).join('');
+}
+window.saveBonusByTag = saveBonusByTag;
 
 // Does this inventory item belong in this paperdoll slot?
 function itemFitsSlot(item, slot) {
@@ -44,10 +84,16 @@ function slotsForItem(item) {
         const t = window.GlobalWeaponsDatabase?.[item.weaponId]?.type;
         return t === '1h-melee' ? ['mainHand', 'offHand'] : ['mainHand'];
     }
-    if (['wand', 'staff', 'rod'].includes(item.group)) return ['mainHand'];
+    if (['wand', 'staff', 'rod'].includes(item.group) || item.techWeapon) return ['mainHand'];
     if (item.slot === 'ring') return ['ringLeft', 'ringRight'];
     if (['neck', 'cloak', 'head', 'belt', 'boots', 'hands'].includes(item.slot)) return [item.slot];
     return [];
+}
+// Suits any class may wear (Blackmoor battle armour, pressure suits): not barred by the class's armour rules.
+// Mystics still never wear armour.
+function anyClassArmourOk(item, character) {
+    const cls = character?.characterClass || character?.class || '';
+    return Boolean(item && item.isArmor && item.anyClass) && cls !== 'Mystic';
 }
 const SLOT_LABELS = { head: 'head', neck: 'neck', cloak: 'cloak', mainHand: 'main hand', armor: 'armour', offHand: 'off hand', ringLeft: 'left hand', ringRight: 'right hand', belt: 'belt', hands: 'hands', boots: 'feet' };
 
@@ -59,11 +105,11 @@ async function equipInventoryItem(index, wantSlot = null) {
     if (!slots.length) return false;
     if (!currentCharacter.paperdoll) syncPaperdollUI();
     const pd = currentCharacter.paperdoll;
-    const allowed = slots.filter(s => checkSlotRestriction(s, currentCharacter).allowed);
+    const allowed = slots.filter(s => checkSlotRestriction(s, currentCharacter).allowed || (s === 'armor' && anyClassArmourOk(item, currentCharacter)));
     if (!allowed.length) { await sheetAlert(checkSlotRestriction(slots[0], currentCharacter).reason); return false; }
     const itemBlock = itemRestriction(item, allowed[0], currentCharacter);
     if (itemBlock) { await sheetAlert(itemBlock); return false; }
-    if (item.isArmor && !isArmourAllowed(currentCharacter, item.baseAC !== undefined ? Number(item.baseAC) : 7)) {
+    if (item.isArmor && !anyClassArmourOk(item, currentCharacter) && !isArmourAllowed(currentCharacter, item.baseAC !== undefined ? Number(item.baseAC) : 7)) {
         await sheetAlert(`${currentCharacter.characterClass} cannot wear that armour (${ClassesDatabase[currentCharacter.characterClass]?.allowedArmor || 'restricted'}).`);
         return false;
     }
@@ -92,24 +138,25 @@ function catalogueChoicesForSlot(slot) {
     }
     if (typeof RC_MAGIC_ITEMS !== 'undefined') {
         RC_MAGIC_ITEMS.forEach(x => {
-            const fits = (slot === 'mainHand' && ['wand', 'staff', 'rod'].includes(x.group))
+            const fits = (slot === 'mainHand' && (['wand', 'staff', 'rod'].includes(x.group) || x.techWeapon))
                 || ((slot === 'ringLeft' || slot === 'ringRight') && x.slot === 'ring')
                 || (x.slot && x.slot === slot);
             if (!fits) return;
-            const note = x.houseRule ? 'House rule' : 'Rules Cyclopedia';
+            const note = x.houseRule ? 'House rule' : x.group === 'tech' ? 'Blackmoor (DA3)' : 'Rules Cyclopedia';
             // Items with variants (rings of protection +1..+4, bracers AC 7..3) are listed one by one.
-            const barred = itemRestriction(x, slot, currentCharacter) ? 'Not for mystics' : '';
-            if (Array.isArray(x.variants) && x.variants.length) x.variants.forEach((v, i) => out.push({ kind: 'magic', id: `${x.id}~${i}`, name: `${x.name} ${v.suffix}`, note, cursed: x.cursed, barred }));
-            else out.push({ kind: 'magic', id: x.id, name: x.name, note, cursed: x.cursed, barred });
+            const barred = itemRestriction(x, slot, currentCharacter) ? (currentCharacter?.characterClass === 'Mystic' ? 'Not for mystics' : 'Does not fit') : '';
+            if (Array.isArray(x.variants) && x.variants.length) x.variants.forEach((v, i) => out.push({ kind: 'magic', id: `${x.id}~${i}`, name: `${x.name} ${v.suffix}`, note, cursed: x.cursed, barred, anyClass: x.anyClass }));
+            else out.push({ kind: 'magic', id: x.id, name: x.name, note, cursed: x.cursed, barred, anyClass: x.anyClass });
         });
     }
     return out;
 }
+let paperdollModalAnyClassOnly = false;
 function renderSlotCatalogue() {
     const list = document.getElementById('paperdoll-catalogue-list');
     if (!list || !activeSelectingSlot) return;
     const q = (document.getElementById('paperdoll-catalogue-search')?.value || '').trim().toLowerCase();
-    const items = catalogueChoicesForSlot(activeSelectingSlot).filter(c => !q || c.name.toLowerCase().includes(q));
+    const items = catalogueChoicesForSlot(activeSelectingSlot).filter(c => (!q || c.name.toLowerCase().includes(q)) && (!paperdollModalAnyClassOnly || c.anyClass));
     list.innerHTML = items.length ? items.map(c => `
         <button type="button" class="pd-cat-item" ${c.barred ? `disabled title="${escapeHtml(c.barred)}" style="opacity: .5; cursor: not-allowed;"` : `onclick="equipFromCatalogue('${c.kind}', '${c.id}')"`}>
             <span>${escapeHtml(c.name)}${c.cursed ? ' <span class="tag" style="color: var(--danger);">cursed</span>' : ''}${c.barred ? ` <span class="tag" style="color: var(--danger);">${escapeHtml(c.barred)}</span>` : ''}</span>
@@ -144,6 +191,7 @@ const ABILITY_PREFIX = { strength: 'str', intelligence: 'int', wisdom: 'wis', de
 // Catalogue items whose effect on a score the Rules Cyclopedia states outright.
 const CATALOGUE_ABILITY_MODS = {
     misc_gauntlets_of_ogre_power: [{ ability: 'strength', mode: 'set', value: 18 }],
+    ring_weakness: [{ ability: 'strength', mode: 'set', value: 3 }],            // cursed (RC p. 238)
 };
 function itemAbilityMods(item) {
     if (!item) return [];
@@ -246,13 +294,18 @@ function checkSlotRestriction(slot, character) {
 function isProtectiveItem(it) {
     if (!it) return false;
     if (it.isShield === true || it.isArmor) return true;
-    if (Number(it.acBonus) || Number(it.saveBonus) || (it.armourAC != null && it.armourAC !== '')) return true;
+    if (Number(it.acBonus) || Number(it.saveBonus) || it.saveBonusBy || (it.armourAC != null && it.armourAC !== '')) return true;
     if (Array.isArray(it.variants) && it.variants.some(v => Number(v.acBonus) || Number(v.saveBonus) || (v.armourAC != null && v.armourAC !== ''))) return true;
     return /\b(protection|displacement|defen[cs]e)\b/i.test(String(it.name || '')) && !/\bscroll\b/i.test(String(it.name || ''));
 }
 function itemRestriction(item, slot, character) {
     const cls = character?.characterClass || character?.class || '';
-    if (cls !== 'Mystic' || !item) return '';
+    if (!item) return '';
+    // Centaur barding (PC1 Table 19) fits only a centaur, and a centaur's body armour must be barding.
+    if (item.centaurOnly && cls !== 'Centaur') return `${item.name || 'This barding'} is made for a centaur.`;
+    if (cls === 'Centaur' && slot === 'armor' && item.isArmor && !item.centaurOnly && !item.anyClass)
+        return `A centaur needs barding made for its body (PC1): ${item.name || 'this armour'} does not fit. Look for Centaur Barding in the catalogue.`;
+    if (cls !== 'Mystic') return '';
     if (slot === 'offHand' ? isShieldItem(item) : isProtectiveItem(item)) {
         return `Mystics never use shields or protective devices (rings, cloaks, bracers of protection...): ${item.name || 'this item'} is not allowed.`;
     }
@@ -310,6 +363,7 @@ function calculateEquippedArmorAC(character) {
             protectionBonus += Number(it.magicBonus) || 0;
         }
     });
+    if (!mystic) carriedActiveItems(character).forEach(it => { protectionBonus += Number(it.acBonus) || 0; });
     baseAC -= protectionBonus;
 
     return baseAC;
@@ -340,7 +394,21 @@ function isShieldItem(item) {
 //  - armour used to be stored with its enchantment already subtracted from baseAC,
 //    which made the bonus count twice; restore the raw AC;
 //  - anything held in the off hand used to count as a shield.
+// Catalogue items saved with effects they should not have (fixed in the catalogue later):
+// an ointment of blessing only helps for 1 turn after use; a ring of spell turning works
+// 2d6 times a day (not a store of charges); a ring of wishes holds 1-4 wishes, not 1-10.
+function fixCatalogueItemData(character) {
+    const all = [...((character && character.inventory) || []), ...Object.values((character && character.paperdoll) || {})].filter(Boolean);
+    all.forEach(it => {
+        if (it.catalogId === 'misc_ointment_blessing') { delete it.acBonus; delete it.saveBonus; }
+        if (it.catalogId === 'ring_spell_turning' && it.chargesRule) { delete it.charges; delete it.chargesRule; }
+        if (it.catalogId === 'ring_wishes' && Number(it.charges) > 4) it.charges = 4;
+    });
+}
+window.fixCatalogueItemData = fixCatalogueItemData;
+
 function migrateLegacyEquipment(character) {
+    try { fixCatalogueItemData(character); } catch (e) { console.error(e); }
     if (!character || character.equipmentVersion >= 2) return;
     const pd = character.paperdoll;
     if (pd && typeof pd === 'object') {
@@ -465,7 +533,7 @@ function syncPaperdollUI() {
                     ${concBadge}
                     ${item.enemyBonus ? `<span class="tag" style="color: var(--info);">+${Number(item.enemyBonus.bonus)} vs ${escapeHtml(item.enemyBonus.name)}</span>` : ''}
                     ${item.acBonus && !item.isShield ? `<span class="tag" style="color: var(--info);">AC -${Number(item.acBonus)}</span>` : ''}
-                    ${item.saveBonus ? `<span class="tag" style="color: var(--info);">Saves +${Number(item.saveBonus)}</span>` : ''}
+                    ${item.saveBonus ? `<span class="tag" style="color: var(--info);">Saves +${Number(item.saveBonus)}</span>` : ''}${saveBonusByTag(item)}
                     ${item.armourAC != null ? (activeBracers(currentCharacter) === item ? `<span class="tag" style="color: var(--info);">AC ${Number(item.armourAC)}</span>` : `<span class="tag" style="color: var(--warn);" title="Bracers work only with no armour and no shield">AC ${Number(item.armourAC)}: inactive (armour or shield)</span>`) : ''}
                 </div>
                 ${chargeBlock}
@@ -483,7 +551,7 @@ function syncPaperdollUI() {
             warnBadge.innerText = 'Mystic: No Armour, Shields or Protective Items';
             warnBadge.style.display = 'inline-block';
         } else if (cls === 'Magic-User') {
-            warnBadge.innerText = 'Magic-User: Armor & Shields Prohibited';
+            warnBadge.innerText = 'Magic-User: No Armour or Shields';
             warnBadge.style.display = 'inline-block';
         } else if (cls === 'Thief') {
             warnBadge.innerText = 'Thief: Leather Armor Only (No Shields)';
@@ -500,11 +568,19 @@ function syncPaperdollUI() {
         if (!el) return;
         const item = currentCharacter.paperdoll[slotKey];
         const contentEl = el.querySelector('.slot-content');
-        const restriction = checkSlotRestriction(slotKey, currentCharacter);
+        let restriction = checkSlotRestriction(slotKey, currentCharacter);
+        if (!restriction.allowed && slotKey === 'armor' && anyClassArmourOk(item, currentCharacter)) restriction = { allowed: true };
 
-        el.classList.remove('equipped', 'restricted');
+        el.classList.remove('equipped', 'restricted', 'limited');
+        const cls = currentCharacter.characterClass || currentCharacter.class || '';
 
-        if (!restriction.allowed) {
+        if (!restriction.allowed && slotKey === 'armor' && !item && cls !== 'Mystic') {
+            // No ordinary armour for this class, but suits any class may wear still fit.
+            el.classList.add('limited');
+            if (contentEl) contentEl.innerText = 'Suits only';
+            el.title = `${restriction.reason} Suits any class may wear (Blackmoor battle armour, pressure suits) can still go here: click to choose one.`;
+            el.style.borderColor = '';
+        } else if (!restriction.allowed) {
             el.classList.add('restricted');
             if (contentEl) contentEl.innerText = 'Prohibited';
             el.title = restriction.reason;
@@ -548,7 +624,11 @@ function handleSlotClick(slotKey) {
     if (!currentCharacter) return;
     const restriction = checkSlotRestriction(slotKey, currentCharacter);
     if (!restriction.allowed) {
-        alert(restriction.reason);
+        // A suit any class may wear can still go on (or come off) the armour slot.
+        const worn = currentCharacter.paperdoll && currentCharacter.paperdoll[slotKey];
+        if (slotKey === 'armor' && worn && anyClassArmourOk(worn, currentCharacter)) { unequipSlot(slotKey); return; }
+        if (slotKey === 'armor' && (currentCharacter.characterClass || '') !== 'Mystic') { openPaperdollModal(slotKey, { anyClassOnly: true }); return; }
+        sheetAlert(restriction.reason);
         return;
     }
 
@@ -562,7 +642,7 @@ function handleSlotClick(slotKey) {
 
 }
 
-function openPaperdollModal(slotKey) {
+function openPaperdollModal(slotKey, opts = {}) {
     activeSelectingSlot = slotKey;
     const modal = document.getElementById('paperdoll-modal');
     const titleEl = document.getElementById('paperdoll-modal-title');
@@ -595,7 +675,12 @@ function openPaperdollModal(slotKey) {
     container.innerHTML = '';
     const cls = currentCharacter.characterClass || currentCharacter.class || 'Fighter';
 
-    if (slotKey === 'armor') {
+    if (opts.anyClassOnly) {
+        const note = document.createElement('div');
+        note.className = 'ledger-note';
+        note.textContent = `${cls}s may not wear armour, but suits any class may wear (Blackmoor battle armour, pressure suits) can go here.`;
+        container.appendChild(note);
+    } else if (slotKey === 'armor') {
         STANDARD_ARMORS.filter(a => a.id !== 'shield').forEach(arm => {
             const isAllowed = isArmourAllowed(currentCharacter, arm.baseAC);
             const btn = document.createElement('button');
@@ -633,7 +718,8 @@ function openPaperdollModal(slotKey) {
     }
 
     // From the catalogue (searchable).
-    const catChoices = catalogueChoicesForSlot(slotKey);
+    const catChoices = catalogueChoicesForSlot(slotKey).filter(c => !opts.anyClassOnly || c.anyClass);
+    paperdollModalAnyClassOnly = Boolean(opts.anyClassOnly);
     if (catChoices.length) {
         const sec = document.createElement('div');
         sec.innerHTML = `
@@ -656,6 +742,7 @@ function openPaperdollModal(slotKey) {
 
         const order = invItems.map((it, idx) => ({ it, idx, fits: itemFitsSlot(it, slotKey) }))
             .filter(o => !(o.it.isValuable || o.it.valueGP > 0))
+            .filter(o => !opts.anyClassOnly || anyClassArmourOk(o.it, currentCharacter))
             .sort((a, b) => Number(b.fits) - Number(a.fits));
         order.forEach(({ it, idx, fits }) => {
             const barred = itemRestriction(it, slotKey, currentCharacter);

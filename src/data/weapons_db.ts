@@ -1437,3 +1437,16 @@ export const WeaponsDatabase: Record<string, WeaponMasteryEntry> = {
         }
     }
 };
+
+// PC1 Tall Tales of the Wee Folk: woodland beings borrow a class's weapon list (sized to fit them).
+// Hsiao and treants use no weapons, only claws and limbs.
+const PC1_WEAPONS_AS: [string, string][] = [
+    ["Brownie", "Fighter"], ["Redcap", "Fighter"],          // "no limit ... so long as they are of a suitable size"
+    ["Faun", "Fighter"], ["Wood Imp", "Fighter"], ["Leprechaun", "Fighter"], ["Pixie", "Fighter"], ["Pooka", "Fighter"],
+    ["Sidhe (Warrior)", "Fighter"], ["Sidhe (Rogue)", "Thief"], ["Woodrake", "Thief"],
+    ["Dryad", "Magic-User"], ["Sprite", "Halfling"],
+];
+Object.values(WeaponsDatabase).forEach(w => {
+    if (!Array.isArray(w.useableBy)) return;
+    PC1_WEAPONS_AS.forEach(([race, as]) => { if (w.useableBy.includes(as) && !w.useableBy.includes(race)) w.useableBy.push(race); });
+});

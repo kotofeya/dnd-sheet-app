@@ -177,6 +177,23 @@ select.stat-input option, select.stat-input optgroup { background-color: var(--c
     background: var(--card-bg);
 }
 
+/* When the tabs no longer fit on one line they are laid out in two even rows (js: layoutTabs). */
+.tabs.tabs-two-rows {
+    display: grid;
+    grid-template-columns: repeat(var(--tab-cols, 5), minmax(0, 1fr));
+    border-bottom: none;
+    gap: 4px;
+}
+.tabs.tabs-two-rows .tab-btn {
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border-color);
+    min-height: 40px;
+    padding: 10px 6px;
+}
+.tabs.tabs-two-rows .tab-btn.active {
+    border-color: var(--accent-gold);
+}
+
 /* Only the active tab is visible on screen (print mode still expands every tab). */
 .tab-content {
     display: none;
@@ -326,10 +343,12 @@ button { font-family: var(--font-headings); letter-spacing: 0.04em; }
 .ledger-num.rubric { color: var(--accent-gold); }
 .ledger-note { font-style: italic; font-size: 0.95rem; color: var(--text-muted); min-width: 0; }
 .ledger-actions { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
-.weapon-ledger .ledger-row { grid-template-columns: minmax(0, 2fr) 150px 70px 70px 110px minmax(0, 3fr) 76px; }
-.skill-ledger .ledger-row { grid-template-columns: minmax(0, 2.2fr) 56px 80px 120px minmax(0, 3fr) 40px; }
+.ledger-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.ledger-tags .tag { white-space: normal; }
+.weapon-ledger .ledger-row { grid-template-columns: minmax(0, 2fr) 178px 70px 70px 110px minmax(0, 3fr) 76px; }
+.skill-ledger .ledger-row { grid-template-columns: minmax(0, 2.2fr) 56px 80px 120px minmax(0, 3fr) 66px; }
 .rank-seal { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--gilt); color: var(--gilt); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-headings); font-weight: 700; flex: none; }
-.rank-cell { display: flex; align-items: center; gap: 6px; }
+.rank-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .skill-ranks-btn { min-width: 30px; background: transparent; border: 1px dotted transparent; color: inherit; cursor: pointer; padding: 2px 4px; text-align: center; }
 .skill-ranks-btn:hover, .skill-ranks-btn:focus-visible { border-color: var(--accent-gold); color: var(--accent-gold); }
 .skill-src { color: var(--gilt); cursor: help; }
@@ -361,11 +380,18 @@ button:has(> .ui-icon) { display: inline-flex; align-items: center; justify-cont
 .note-col-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .note-col-title { font-family: var(--font-headings); font-weight: 700; color: var(--accent-gold); font-size: 1rem; }
 .note-col-body { font-size: 1rem; line-height: 1.4; }
+.item-use-row { margin-top: 6px; font-family: var(--font-headings); color: var(--accent-gold); font-size: 0.95rem; }
 .segmented { display: inline-flex; border: 1px solid var(--border-color); }
 .segmented button { min-height: 32px; padding: 4px 10px; border: none; background: transparent; color: var(--text-muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; }
 .segmented button.on { background: var(--accent-gold); color: var(--on-accent); }
 .tally { display: inline-flex; gap: 12px; font-family: var(--font-headings); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
 .tally strong { font-size: 0.95rem; color: var(--text-main); }
+.spell-tally { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; }
+.spell-sort { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-headings); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
+.spell-sort select { width: auto; padding: 3px 6px; font-size: 0.8rem; font-family: var(--font-ui); text-transform: none; letter-spacing: 0; text-align: left; border: 1px solid var(--border-color); border-radius: 2px; }
+.spell-row-actions { margin-left: auto; padding-left: 4px; display: inline-flex; align-items: center; gap: 2px; }
+.spell-edit-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 0 2px; display: inline-flex; }
+.spell-edit-btn:hover { color: var(--accent-gold); }
 
 /* Arcana and Dominion tabs */
 #arcana-root, #dominion-root { display: contents; }
@@ -904,3 +930,47 @@ textarea.stat-input { font-family: var(--font-ui); font-size: 1rem !important; l
 .hold-build-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .85rem; color: var(--warn); }
 .hold-status-owned { color: var(--good); } .hold-status-rented { color: var(--info); } .hold-status-building { color: var(--warn); } .hold-status-ruined, .hold-status-lost { color: var(--danger); }
 @media (max-width: 760px) { .hold-grid { grid-template-columns: 1fr; } }
+.item-defence { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 8px; align-items: end; }
+@media (max-width: 520px) { .item-defence { grid-template-columns: 1fr 1fr; } }
+.cat-variant-notes { margin: 6px 0 0; padding-left: 18px; font-size: .8rem; line-height: 1.4; }
+.cat-variant-notes li { margin: 2px 0; }
+.item-magic-row { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.forge-spell-row { display: grid; grid-template-columns: 1fr 90px auto; gap: 8px; align-items: end; margin: 4px 0; }
+.forge-lvl { display: flex; flex-direction: column; }
+#inv-show.inv-filter-on > summary { border-color: var(--accent-gold); color: var(--accent-gold); }
+.inv-show-dd { position: relative; }
+.inv-show-dd > summary { list-style: none; cursor: pointer; min-width: 180px; max-width: 280px; border: 1px solid var(--border-color); padding: 3px 24px 3px 6px; border-radius: 2px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; font-family: var(--font-ui); }
+.inv-show-dd > summary::-webkit-details-marker { display: none; }
+.inv-show-dd > summary::after { content: '▾'; position: absolute; right: 7px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+.inv-show-menu { position: absolute; z-index: 50; top: calc(100% + 4px); left: 0; min-width: 260px; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--card-bg); border: 1px solid var(--accent-gold); border-radius: 2px; box-shadow: 0 6px 18px rgba(0,0,0,.35); font-family: var(--font-ui); }
+.inv-show-menu .btn { align-self: flex-start; margin-bottom: 4px; }
+.inv-show-opt { display: flex; align-items: center; gap: 6px; padding: 3px 2px; color: var(--text-main); cursor: pointer; }
+.inv-show-opt:hover { background: var(--inset); }
+.inv-show-n { margin-left: auto; color: var(--text-muted); font-size: .8em; }
+.inv-show-sep { margin-top: 6px; padding-top: 6px; border-top: 1px dotted var(--border-color); font-size: .75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; font-family: var(--font-headings); }
+.paperdoll-slot.limited { border-style: dashed; opacity: .85; }
+.paperdoll-slot.limited .slot-content { color: var(--text-muted); font-style: italic; }
+.lib-books .arc-row-head { margin-bottom: 6px; }
+.lib-book { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px dotted var(--border-color); }
+.lib-book-main { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.lib-book-title { font-weight: 700; text-align: left; }
+.lib-book-notes { flex-basis: 100%; white-space: pre-wrap; }
+.lib-book-val { font-family: var(--font-headings); font-weight: 600; white-space: nowrap; }
+.lib-pick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 14px; max-height: 340px; overflow-y: auto; margin-top: 6px; padding-right: 4px; }
+.lib-pick { align-items: baseline; }
+.inv-loc-select { flex: none; width: auto; max-width: 170px; font-size: 0.72rem; color: var(--text-muted); background: transparent; border: 1px solid color-mix(in srgb, var(--text-main) 12%, transparent); border-radius: 2px; padding: 0 2px; cursor: pointer; font-family: var(--font-ui); }
+.inv-loc-select:hover, .inv-loc-select:focus-visible { border-color: var(--accent-gold); color: var(--text-main); }
+.inv-loc-select option { background: var(--card-bg); color: var(--text-main); }
+.wage-auto { opacity: .75; cursor: not-allowed; }
+.arc-check .pay-source { width: auto; padding: 2px 6px; margin-left: 4px; }
+/* Skyship designer (js/vessels.js) */
+.notes-form-card.sky-card { width: min(1100px, 100%); }
+.sky-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: 18px; align-items: start; }
+.sky-result { position: sticky; top: 0; border: 1px solid var(--border-color); background: var(--inset); padding: 10px 12px; border-radius: 2px; font-size: .88rem; }
+.sky-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px dotted color-mix(in srgb, var(--border-color) 60%, transparent); }
+.sky-row strong { text-align: right; }
+.sky-head { margin-top: 12px; padding-top: 8px; border-top: 1px dotted var(--border-color); }
+.sky-spell-row { display: grid; grid-template-columns: minmax(0, 2fr) 60px minmax(0, 1.6fr) 70px auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+@media (max-width: 820px) { .sky-grid { grid-template-columns: 1fr; } .sky-result { position: static; } }
+.sky-fit-row { display: grid; grid-template-columns: minmax(0, 2.4fr) 70px 90px 90px auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.sky-fit-head { display: grid; grid-template-columns: minmax(0, 2.4fr) 70px 90px 90px 34px; gap: 6px; margin: -2px 0 6px; }

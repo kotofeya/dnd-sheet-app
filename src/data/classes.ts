@@ -76,9 +76,37 @@ export interface ClassData {
     /** Creature heroes (PC1/PC2): Hit Dice by level as [dice, extra hp]; index = level. Past the end, +hpPerLevelAfter9 per level. */
     hitDiceTable?: readonly (readonly [number, number])[];
     /** Creature heroes: stages before 1st level, entered by XP (may be negative). */
-    preStages?: { name: string; short: string; xp: number; dice: number; plus: number; armourClass?: number; thac0: number }[];
+    preStages?: {
+        name: string; short: string; xp: number; dice: number; plus: number; armourClass?: number; thac0: number;
+        /** Hit die size at this stage if not the class's (a normal sidhe has 1d4). */
+        die?: number;
+        /** Spells per level at this stage (hsiao). */
+        spells?: number[];
+        /** Natural attacks at this stage. */
+        attacks?: { count: number; note: string };
+        /** Save-table level at this stage. */
+        saveLevel?: number;
+        /** Thief skills as a thief of this level (0 = none). */
+        thiefLevel?: number;
+    }[];
+    /** Own movement & encumbrance table (PC1 Table 18): walking speed per round-turn for up to `max` cn; more than the last row = immobile. */
+    encumbranceTable?: readonly { max: number; speed: number }[];
     /** Natural armour class when unarmoured; worn armour only counts if it is better. */
     naturalArmourClass?: number;
+    /** Saving throws are read at this level of the save table (index = class level); default the class level. */
+    saveLevels?: readonly number[];
+    /** Highest scores the race allows (PC1 Table 1). */
+    maxScores?: Partial<Record<'strength' | 'intelligence' | 'wisdom' | 'dexterity' | 'constitution' | 'charisma', number>>;
+    /** PC1 fairy item use for magic-user/elf/fairy items by level: [S max, F max, B max] on d%, the rest is U. */
+    itemUse?: readonly (readonly [number, number, number])[];
+    /** Flying movement & encumbrance (PC1 Table 18a), like encumbranceTable. */
+    flyingTable?: readonly { max: number; speed: number }[];
+    /** Natural attacks a round (claws, limbs...), shown instead of the weapon attacks. */
+    naturalAttacks?: { count: number; note: string };
+    /** Thief skills as a thief of this level (index = class level; 0 = none). */
+    thiefSkillsAs?: readonly number[];
+    /** Changes to the class's spell list: move a spell (by name) to another level, or add a race-only spell (by id). */
+    spellListChanges?: { name?: string; id?: string; level: number }[];
     /** Mystic-only level data (DD Table 4-8): natural AC, movement, strike-to-kill, thief-like abilities. */
     mysticTable?: {
         armourClass: readonly number[];
@@ -933,6 +961,11 @@ const CreatureHeroClasses: Record<string, ClassData> = {
         xpTable: CentaurXP, saves: FighterSaves,              // "Centaurs make Saving Throws as fighters of the same level"
         thac0: CentaurThac0, hitDiceTable: CentaurHD,
         naturalArmourClass: 7,
+        // PC1 Table 18 (p. 48): Movement & Encumbrance for centaurs.
+        encumbranceTable: [
+            { max: 1000, speed: 180 }, { max: 2000, speed: 150 }, { max: 3000, speed: 120 }, { max: 4000, speed: 90 },
+            { max: 6000, speed: 60 }, { max: 7500, speed: 30 }, { max: 8000, speed: 15 },
+        ],
         preStages: [
             { name: "Young Centaur", short: "Young", xp: -4000, dice: 2, plus: 0, armourClass: 8, thac0: monsterThac0(2, 0) },
             { name: "Normal Monster", short: "NM", xp: 0, dice: 4, plus: 0, armourClass: 7, thac0: monsterThac0(4, 0) },
@@ -946,6 +979,7 @@ const CreatureHeroClasses: Record<string, ClassData> = {
         features: [
             { minLevel: 1, name: "Growing Up", description: "You start as a young centaur at -4,000 XP (2 Hit Dice, AC 8), become a normal monster at 0 XP (4 Hit Dice, AC 7) and reach 1st level at 4,000 XP." },
             { minLevel: 1, name: "Natural Armour", description: "AC 7 (AC 8 while young). Barding counts only if it is better; Dexterity and shields still apply." },
+            { minLevel: 1, name: "Movement", description: "180' (60') carrying up to 1,000 cn; 150' up to 2,000; 120' up to 3,000; 90' up to 4,000; 60' up to 6,000; 30' up to 7,500; 15' up to 8,000; more and you cannot move (PC1 Table 18)." },
             { minLevel: 1, name: "Hooves", description: "Besides a weapon, strike with your hooves for 1d6 damage each." },
             { minLevel: 1, name: "Lance Charge", description: "Charging with a lance deals double damage, like a mounted fighter, but then you cannot also attack with your hooves that round." },
             { minLevel: 1, name: "Monster Combat", description: "You always fight as a monster of your Hit Dice (not your level) and save as a fighter of your level." },
@@ -955,3 +989,477 @@ const CreatureHeroClasses: Record<string, ClassData> = {
     },
 };
 Object.assign(ClassesDatabase, CreatureHeroClasses);
+
+// ---------------------------------------------------------------------------
+// The other PC1 creature heroes (Tall Tales of the Wee Folk, pp. 9-41, Tables 1, 3-17, 18, 18a).
+// Woodland beings fight as monsters of their Hit Dice. Dexterity applies to AC; worn armour
+// counts only if it is better than the natural AC.
+// ---------------------------------------------------------------------------
+type Stage = NonNullable<ClassData['preStages']>[number];
+const stage = (name: string, short: string, xp: number, dice: number, extra: Partial<Stage> = {}): Stage =>
+    ({ name, short, xp, dice, plus: 0, thac0: monsterThac0(dice, 0), ...extra });
+const nmStage = (dice: number, extra: Partial<Stage> = {}): Stage => stage("Normal Monster", "NM", 0, dice, extra);
+const monsterThac0Table = (hd: [number, number][]): number[] => hd.map(([d, p], lvl) => lvl === 0 ? 20 : monsterThac0(d, p));
+/** Save-as level for every class level (index = level), capped at 36. */
+const saveLevels = (hd: [number, number][], f: (dice: number, lvl: number) => number): number[] =>
+    hd.map(([d], lvl) => lvl === 0 ? 1 : Math.max(1, Math.min(36, f(d, lvl))));
+/** Spell table rows for levels 1.., then the last row repeated to 36th level. */
+const expandSpells = (rows: number[][]): number[][] =>
+    Array.from({ length: 37 }, (_, lvl) => lvl === 0 ? [] : (rows[Math.min(lvl, rows.length) - 1] ?? []).slice());
+/** Magic item use (S/F/B/U) rows [S max, F max, B max] for levels 1-10; later levels keep the 10th-level row. */
+const expandItemUse = (rows: [number, number, number][]): [number, number, number][] =>
+    Array.from({ length: 37 }, (_, lvl) => lvl === 0 ? [0, 100, 100] as [number, number, number] : rows[Math.min(lvl, rows.length) - 1]!);
+const enc = (rows: [number, number][]) => rows.map(([max, speed]) => ({ max, speed }));
+/** PC1 Tables 18 and 18a: maximum cn at 15' / 30' / 60' / 90' / 120' / 150' / 180' / 210'. */
+const encFromColumns = (cols: number[]) => {
+    const speeds = [15, 30, 60, 90, 120, 150, 180, 210];
+    return enc(cols.map((max, i) => [max, speeds[i]!] as [number, number]).reverse());
+};
+const PC1_PRIME_NOTE = "XP bonus: +5% if every prime requisite is 13+, +10% if every one is 16+";
+const fairyFeatures = (visibleNote = "You become visible to anyone you attack."): ClassFeature[] => [
+    { minLevel: 1, name: "Invisible to Mortals", description: `At will you bend light so that mortals cannot see you (only creatures with second sight, other fairies among them, and detect invisible can). ${visibleNote} After a round you can will yourself invisible again.` },
+    { minLevel: 1, name: "Second Sight", description: "Like all fairies you recognise a fairy's true form, even when it is invisible to mortals, polymorphed or shapechanged." },
+    { minLevel: 1, name: "Fairy Nature", description: "Fairies are immune to the paralysis of ghouls and never suffer natural diseases." },
+];
+const itemUseFeature = (who: string): ClassFeature =>
+    ({ minLevel: 1, name: "Magic Item Use", description: `${who} From 1st level you may also try items restricted to magic-users, elves and spellcasting fairies: roll d% on your level's row (shown below). S = success; F = the item does nothing; B = backfire, aimed at the wrong target (usually you); U = unexpected result (1d6: 1-2 helpful, 3-4 harmful, 5-6 indifferent; the DM decides what happens).` });
+
+// --- Tables -----------------------------------------------------------------
+// Table 3: dryad. Spells as a druid (cleric table, first spell at 2nd level).
+const DryadXP = expandXp([0, 3000, 9000, 21000, 45000, 95000, 190000, 380000, 680000, 980000, 1280000, 1580000], 300000);
+const DryadHD = expandHitDice([[0, 0], [2, 0], [3, 0], [3, 0], [4, 0], [4, 0], [5, 0], [5, 0], [6, 0], [6, 0], [7, 0], [7, 1]], 1);
+// Table 4: faun.
+const FaunXP = expandXp([0, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 130000, 260000, 460000], 200000);
+const FaunHD = expandHitDice([[0, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [10, 2]], 2);
+// Table 5: hsiao. Spells as a cleric four levels higher, up to the 11th-level row.
+const HsiaoXP = expandXp([0, 8000, 24000, 56000, 115000, 250000, 500000, 800000, 1100000, 1400000, 1700000, 2000000, 2300000], 300000);
+const HsiaoHD = expandHitDice([[0, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [11, 0], [12, 0], [13, 0], [14, 0], [15, 0], [15, 1]], 1);
+const HsiaoSpells = expandSpells([[2, 2], [2, 2, 1], [3, 2, 2], [3, 3, 2, 1], [3, 3, 3, 2], [4, 4, 3, 2, 1], [4, 4, 3, 3, 2],
+    [4, 4, 4, 3, 2, 1], [5, 5, 4, 3, 2, 2], [5, 5, 5, 3, 3, 2], [6, 5, 5, 3, 3, 2]]);
+// Table 6: treant.
+const TreantXP = expandXp([0, 48000, 145000, 340000, 640000, 940000, 1240000, 1540000, 1840000, 2140000, 2440000], 300000);
+const TreantHD = expandHitDice([[0, 0], [8, 0], [9, 0], [9, 0], [10, 0], [10, 0], [11, 0], [11, 0], [12, 0], [12, 0], [12, 3]], 3);
+// Table 7: wood imp.
+const WoodImpXP = expandXp([0, 800, 1600, 3200, 6400, 12800, 25000, 50000, 100000, 200000, 360000, 520000], 160000);
+const WoodImpHD = expandHitDice([[0, 0], [2, 0], [3, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [10, 2]], 2);
+// Table 9: brownie (and redcap).
+const BrownieXP = expandXp([0, 2000, 6000, 14000, 30500, 62000, 125000, 250000, 500000, 800000, 1100000], 300000);
+const BrownieHD = expandHitDice([[0, 0], [3, 0], [4, 0], [5, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [10, 2]], 2);
+const BrownieItemUse = expandItemUse([[5, 89, 99], [5, 89, 98], [10, 89, 97], [15, 89, 96], [15, 89, 95], [20, 89, 94], [20, 89, 93], [25, 89, 92], [25, 89, 91], [30, 89, 90]]);
+// Table 10: leprechaun.
+const LeprechaunXP = expandXp([0, 2000, 4000, 8000, 16000, 32000, 64000, 130000, 260000, 520000, 780000, 1040000, 1300000], 260000);
+const LeprechaunHD = expandHitDice([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [9, 0], [9, 1], [9, 2]], 1);
+const LeprechaunSpells = expandSpells([[1], [2], [2, 1], [2, 2], [2, 2, 1], [3, 2, 2], [3, 2, 2, 1], [3, 3, 2, 2], [3, 3, 2, 2, 1], [4, 3, 3, 2, 2], [4, 4, 4, 3, 3], [4, 4, 4, 4, 4]]);
+// Tables 11 & 12: pixie and sprite (same XP).
+const PixieXP = expandXp([0, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 250000, 500000, 800000], 300000);
+const PixieHD = expandHitDice([[0, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [10, 1]], 1);
+const PixieItemUse = expandItemUse([[5, 84, 99], [10, 84, 98], [10, 84, 97], [15, 84, 96], [20, 84, 95], [20, 84, 94], [25, 84, 93], [30, 84, 92], [30, 84, 91], [35, 84, 90]]);
+// Table 13: sprite spells.
+const SpriteSpells = expandSpells([
+    [1], [2], [2, 1], [2, 2], [2, 2, 1], [2, 2, 2], [2, 2, 2, 1], [3, 2, 2, 2], [3, 2, 2, 2, 1], [3, 3, 2, 2, 2],
+    [3, 3, 3, 2, 2, 1], [4, 3, 3, 2, 2, 2], [4, 4, 3, 2, 2, 2, 1], [4, 4, 3, 3, 3, 2, 1], [4, 4, 4, 3, 3, 2, 2], [4, 4, 4, 4, 4, 3, 2],
+    [4, 4, 4, 4, 4, 3, 3], [4, 4, 4, 4, 4, 4, 4], [5, 5, 5, 4, 4, 4, 4], [5, 5, 5, 5, 5, 4, 4], [5, 5, 5, 5, 5, 5, 5], [6, 6, 5, 5, 5, 5, 5],
+    [6, 6, 6, 6, 5, 5, 5], [6, 6, 6, 6, 6, 6, 5], [6, 6, 6, 6, 6, 6, 6], [7, 7, 7, 6, 6, 6, 6], [7, 7, 7, 7, 7, 6, 6], [7, 7, 7, 7, 7, 7, 7],
+    [8, 8, 7, 7, 7, 7, 7], [8, 8, 8, 8, 7, 7, 7], [8, 8, 8, 8, 8, 8, 7], [8, 8, 8, 8, 8, 8, 8], [9, 9, 8, 8, 8, 8, 8], [9, 9, 9, 9, 8, 8, 8],
+    [9, 9, 9, 9, 9, 9, 8], [9, 9, 9, 9, 9, 9, 9]]);
+// Table 14: pooka.
+const PookaXP = expandXp([0, 4000, 12000, 28000, 60500, 125500, 250500, 500000, 800000, 1100000, 1400000], 300000);
+const PookaHD = expandHitDice([[0, 0], [3, 0], [3, 0], [4, 0], [5, 0], [5, 0], [6, 0], [7, 0], [8, 0], [8, 1], [8, 2]], 1);
+const PookaItemUse = expandItemUse([[5, 79, 98], [10, 79, 96], [15, 79, 94], [20, 79, 92], [25, 79, 90], [30, 79, 88], [35, 79, 86], [40, 79, 84], [45, 79, 82], [50, 79, 80]]);
+// Tables 15 & 16: sidhe (warrior d8, rogue d4; same XP and spells).
+const SidheXP = expandXp([0, 2500, 5000, 10000, 20000, 40000, 80000, 160000, 320000, 620000, 920000, 1220000], 290000);
+const SidheWarriorHD = expandHitDice([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [9, 1], [9, 1]], 1);
+const SidheRogueHD = expandHitDice([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [9, 1], [9, 2]], 1);
+const SidheSpells = expandSpells([
+    [1], [2], [2, 1], [2, 2], [3, 2], [3, 2, 1], [3, 2, 2], [3, 3, 2], [3, 3, 2, 1], [3, 3, 2, 2],
+    [3, 3, 3, 2], [3, 3, 3, 2, 1], [3, 3, 3, 2, 2], [3, 3, 3, 3, 2], [3, 3, 3, 3, 2, 1], [3, 3, 3, 3, 2, 2],
+    [3, 3, 3, 3, 3, 2], [3, 3, 3, 3, 3, 2, 1], [3, 3, 3, 3, 3, 2, 2], [3, 3, 3, 3, 3, 3, 3], [4, 4, 3, 3, 3, 3, 3], [4, 4, 4, 4, 3, 3, 3],
+    [4, 4, 4, 4, 4, 4, 3], [4, 4, 4, 4, 4, 4, 4], [5, 5, 4, 4, 4, 4, 4], [5, 5, 5, 5, 4, 4, 4], [5, 5, 5, 5, 5, 5, 4], [5, 5, 5, 5, 5, 5, 5],
+    [6, 6, 5, 5, 5, 5, 5], [6, 6, 6, 6, 5, 5, 5], [6, 6, 6, 6, 6, 6, 5], [6, 6, 6, 6, 6, 6, 6], [7, 7, 6, 6, 6, 6, 6], [7, 7, 7, 7, 6, 6, 6],
+    [7, 7, 7, 7, 7, 7, 6], [7, 7, 7, 7, 7, 7, 7]]);
+// Table 17: woodrake.
+const WoodrakeXP = expandXp([0, 16000, 48000, 112000, 240000, 500000, 800000, 1100000, 1400000, 1700000, 2000000], 250000);
+const WoodrakeHD = expandHitDice([[0, 0], [5, 0], [5, 0], [6, 0], [7, 0], [7, 0], [8, 0], [9, 0], [9, 0], [10, 0], [10, 1]], 1);
+const WoodrakeItemUse = BrownieItemUse;
+// Thief skills: as a thief of its Hit Dice to 10th level, then one thief level per two levels.
+const WoodrakeThief = WoodrakeHD.map(([d], lvl) => lvl === 0 ? 0 : (lvl <= 10 ? d : 10 + Math.floor((lvl - 10) / 2)));
+
+const fairySpellNote = "Fairy spells: no spellbook or prayer. You commune with nature to store spell energy and then cast as a magic-user does (Fairy-Charms list, PC1 p. 41)";
+
+const PC1WoodlandClasses: Record<string, ClassData> = {
+    "Brownie": {
+        name: "Brownie", source: PC1, hitDie: 8, hpPerLevelAfter9: 2,
+        xpTable: BrownieXP, saves: HalflingSaves, saveLevels: saveLevels(BrownieHD, d => Math.min(8, d)),
+        thac0: monsterThac0Table(BrownieHD), hitDiceTable: BrownieHD,
+        preStages: [stage("Young Brownie", "Young", -2000, 1, { saveLevel: 1 }), nmStage(2, { saveLevel: 2 })],
+        encumbranceTable: encFromColumns([1200, 800, 600, 400, 200]),
+        itemUse: BrownieItemUse,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { strength: 5, dexterity: 8 }, maxScores: { charisma: 16 },
+        restrictions: ["Starts at -2,000 XP", PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour or shield sized to fit a brownie",
+        allowedWeapons: "Brownie-sized weapons. One-handed: blackjack, blowgun, bola, club, dagger, hand axe, horned shield, javelin, knife shield, short sword, sling, throwing hammer. Two-handed (no shield): light crossbow, mace, net, normal sword, shortbow, staff, whip",
+        features: [
+            { minLevel: 1, name: "Growing Up", description: "You start at -2,000 XP (1 Hit Die), become a normal monster at 0 XP (2 Hit Dice) and reach 1st level at 2,000 XP. You fight as a monster of your Hit Dice and save as a halfling of a level equal to your Hit Dice (8th at most)." },
+            ...fairyFeatures("Unlike most special abilities, you have it from the very first stage. You become visible to anyone you attack."),
+            itemUseFeature("Magic items for fighters, dwarves and halflings work for you as usual."),
+            { minLevel: 1, name: "Movement", description: "120' (40') carrying up to 200 cn; 90' up to 400; 60' up to 600; 30' up to 800; 15' up to 1,200; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Halfling and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Dryad": {
+        name: "Dryad", source: PC1, hitDie: 8, hpPerLevelAfter9: 1,
+        xpTable: DryadXP, saves: ClericSaves,
+        thac0: monsterThac0Table(DryadHD), hitDiceTable: DryadHD,
+        preStages: [stage("Young Dryad", "Young", -3000, 1), nmStage(2)],
+        naturalArmourClass: 7,
+        encumbranceTable: encFromColumns([2400, 1600, 1200, 800, 400]),
+        casterType: 'divine', spellList: 'dryad', spellProgression: ClericSpells,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { wisdom: 8, charisma: 12 }, maxScores: { strength: 16 },
+        restrictions: ["Starts at -3,000 XP", PC1_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None (as a magic-user)",
+        allowedWeapons: "As a magic-user: dagger, staff, sling, whip, net, blowgun",
+        features: [
+            { minLevel: 1, name: "Growing Up", description: "You start at -3,000 XP (1 Hit Die), become a normal monster at 0 XP (2 Hit Dice) and reach 1st level at 3,000 XP. You fight as a monster of your Hit Dice and save as a cleric of your level." },
+            { minLevel: 1, name: "Natural Armour", description: "AC 7 (Dexterity applies). You cannot wear armour." },
+            { minLevel: 1, name: "Magic Items", description: "Any non-weapon magic item permitted to clerics, and magic versions of the weapons you may use." },
+            { minLevel: 1, name: "Charm", description: "From normal monster on: charm as the magic-user spell charm person, three times a day (targets save normally). A dryad bound to a soul-tree may use it once a round, with victims saving at -2, but can never go more than 240' from her tree." },
+            { minLevel: 1, name: "Druid Spells", description: "You cast spells as a druid of your level (cleric and druid spells; the first spell comes at 2nd level). PC1 also suggests insect messenger (1st) and polymorph other to plant (3rd)." },
+            { minLevel: 1, name: "Movement", description: "120' (40') carrying up to 400 cn; 90' up to 800; 60' up to 1,200; 30' up to 1,600; 15' up to 2,400; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Dryad, the local language, Elvish, Fairy, Treant and your alignment tongue; you can speak with plants." },
+            { minLevel: 3, name: "Plant Shape", description: "Shapechange into one chosen plant form and back once a day (each change takes a round); every two levels after 3rd, one more use a day and one more plant form. Each change heals 1d4 hp per level, but never more than half the damage you had taken. In plant form you can be hurt normally and can neither cast spells nor fight." },
+            { minLevel: 10, name: "Famine Curse", description: "Once a month, on a creature that has violated (cut, burned...) a dryad's soul-tree: unless it saves vs. spells at -4 it suffers insatiable hunger and starves to death in 3-12 weeks. Only a wish, or remove curse by a Lawful cleric of 17th level or more, can save it." },
+        ],
+    },
+    "Faun": {
+        name: "Faun", source: PC1, hitDie: 4, hpPerLevelAfter9: 2,
+        xpTable: FaunXP, saves: ThiefSaves,
+        thac0: monsterThac0Table(FaunHD), hitDiceTable: FaunHD,
+        preStages: [nmStage(1)],
+        naturalArmourClass: 8,
+        encumbranceTable: encFromColumns([1800, 1500, 1200, 900, 600, 300]),
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { dexterity: 8, constitution: 5 }, maxScores: { strength: 16, intelligence: 15, charisma: 15 },
+        restrictions: [PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour suited to your body",
+        allowedWeapons: "Any weapon suited to your body",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal monster (0 XP, 1 Hit Die) and reach 1st level at 1,000 XP. You fight as a monster of your Hit Dice and save as a thief of your level." },
+            { minLevel: 1, name: "Natural Armour", description: "AC 8 (Dexterity applies); armour counts only if it is better." },
+            { minLevel: 1, name: "Magic Items", description: "Any magic item not restricted to magic-users, plus any item in the form of food, drink or a musical instrument." },
+            { minLevel: 1, name: "Movement", description: "150' (50') carrying up to 300 cn; 120' up to 600; 90' up to 900; 60' up to 1,200; 30' up to 1,500; 15' up to 1,800; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Dryad, the local language and your alignment tongue; you can speak with animals." },
+            { minLevel: 5, name: "Amplify Impulse", description: "Playing an instrument you know (preferably shepherd's pipes) for at least a round, you draw out an impulse already present in someone (anger, confusion, love, hunger, thirst, panic) until it rules them. They save vs. spells at +4 the first round, +3 the second, and so on down to -4 from the 9th round. From the 5th round you must also save each round or be swept up by the same impulse. Any interruption starts it over. Deaf or magically silenced targets are immune. Saves are a further -1 against a 10th-level faun, -2 against 15th, and so on every five levels." },
+            { minLevel: 10, name: "Make Plants Grow", description: "Playing for five rounds or more, you can amplify plants' urge to grow: treat it as the growth of plants spell." },
+        ],
+    },
+    "Hsiao": {
+        name: "Hsiao", source: PC1, hitDie: 8, hpPerLevelAfter9: 1,
+        xpTable: HsiaoXP, saves: ClericSaves,
+        thac0: monsterThac0Table(HsiaoHD), hitDiceTable: HsiaoHD,
+        preStages: [
+            stage("Hatchling", "Young", -8000, 1, { armourClass: 8, attacks: { count: 3, note: "claw/claw/bite 1-2/1-2/1-2" } }),
+            stage("Fledgling", "Young", -6000, 2, { armourClass: 7, spells: [1], attacks: { count: 3, note: "claw/claw/bite 1-3/1-3/1-2" } }),
+            stage("Young Hsiao", "Young", -4000, 3, { armourClass: 6, spells: [2], attacks: { count: 3, note: "claw/claw/bite 1-4/1-4/1-3" } }),
+            nmStage(4, { armourClass: 5, spells: [2, 1] }),
+        ],
+        naturalArmourClass: 5,
+        naturalAttacks: { count: 3, note: "claw/claw/bite 1-6/1-6/1-4" },
+        encumbranceTable: encFromColumns([500, 350, 200, 100]),
+        flyingTable: encFromColumns([300, 250, 200, 150, 100, 75, 50, 20]),
+        casterType: 'divine', spellProgression: HsiaoSpells,
+        minScores: { intelligence: 6, wisdom: 8 }, maxScores: { strength: 16 },
+        restrictions: ["Starts at -8,000 XP", "Almost always Lawful", PC1_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "No normal armour (special hsiao armour pieces may improve AC slightly)",
+        allowedWeapons: "None: claws and beak",
+        features: [
+            { minLevel: 1, name: "Growing Up", description: "You hatch at -8,000 XP (1 Hit Die, AC 8), grow through -6,000 (2 HD, AC 7, first spell) and -4,000 (3 HD, AC 6), become a normal monster at 0 XP (4 HD, AC 5) and reach 1st level at 8,000 XP. You fight as a monster of your Hit Dice and save as a cleric of your level." },
+            { minLevel: 1, name: "Claws and Beak", description: "Three attacks a round (claw/claw/bite): 1-2/1-2/1-2 at -8,000 XP, 1-3/1-3/1-2 at -6,000, 1-4/1-4/1-3 at -4,000, and 1-6/1-6/1-4 from 0 XP. Like monsters, high-level hsiao can hit creatures that normally need magic weapons." },
+            { minLevel: 1, name: "Natural Armour", description: "AC 5 (Dexterity applies). You cannot wear normal armour." },
+            { minLevel: 1, name: "Magic Items", description: "Any non-weapon, non-armour magic item permitted to clerics, if its shape suits your wings." },
+            { minLevel: 1, name: "Clerical Spells", description: "You cast cleric spells as a cleric four levels higher, up to 15th-level ability (the 11th-level row)." },
+            { minLevel: 1, name: "Flight", description: "Flying: 210' (70') carrying up to 20 cn; 180' up to 50; 150' up to 75; 120' up to 100; 90' up to 150; 60' up to 200; 30' up to 250; 15' up to 300 (PC1 Table 18a). An encumbered flyer must rest one turn after every three turns of flying. Walking: 90' (30') up to 100 cn, 60' up to 200, 30' up to 350, 15' up to 500." },
+            { minLevel: 1, name: "Languages", description: "Hsiao, the local language, Centaur, Dryad, Elvish, Fairy, Treant and your alignment tongue; you can speak with birds." },
+        ],
+    },
+    "Leprechaun": {
+        name: "Leprechaun", source: PC1, hitDie: 4, hpPerLevelAfter9: 1,
+        xpTable: LeprechaunXP, saves: ElfSaves, saveLevels: LeprechaunHD.map((_, lvl) => Math.max(1, Math.min(10, lvl))),
+        thac0: monsterThac0Table(LeprechaunHD), hitDiceTable: LeprechaunHD,
+        preStages: [nmStage(1, { die: 2, thac0: monsterThac0(1, 0) })],
+        encumbranceTable: encFromColumns([100, 50, 20]),
+        casterType: 'arcane', spellList: 'fairy', spellProgression: LeprechaunSpells,
+        spellListChanges: [
+            { name: "Warp Wood", level: 1 }, { name: "Locate Object", level: 1 }, { name: "Polymorph Natural Object", level: 4 },
+            { name: "Contingency", level: 5 }, { name: "Metal to Wood", level: 5 }, { name: "Permanence", level: 5 },
+            { name: "Polymorph Any Object", level: 5 }, { name: "Summon Object", level: 5 },
+        ],
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { intelligence: 9, dexterity: 9, constitution: 5 }, maxScores: { strength: 13, constitution: 16 },
+        restrictions: [PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour of your size (no hindrance to spellcasting)",
+        allowedWeapons: "Any weapon of your size",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal monster (0 XP, 1-2 hp) and reach 1st level at 2,000 XP, gaining another 1-2 hp (in effect a 1d4 Hit Die; Constitution applies to both rolls). You fight as a monster of your Hit Dice and save as an elf of your level (1st as a normal monster, 10th at most)." },
+            ...fairyFeatures("If a mortal sees you, you cannot vanish from that person's eyes until they look away, however briefly. You become visible to anyone you attack."),
+            { minLevel: 1, name: "Magic Items", description: "Any magic item not limited to clerics." },
+            { minLevel: 1, name: "Fairy Spells", description: `${fairySpellNote}. For leprechauns warp wood and locate object are 1st level, polymorph natural object 4th, and contingency, create normal animals, metal to wood, permanence, polymorph any object and summon object 5th (the DM may keep the 5th-level ones for high levels). Maximum spell ability is the 12th-level row.` },
+            { minLevel: 1, name: "Movement", description: "60' (20') carrying up to 20 cn; 30' up to 50; 15' up to 100; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Elvish, Gnome and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Pixie": {
+        name: "Pixie", source: PC1, hitDie: 8, hpPerLevelAfter9: 1,
+        xpTable: PixieXP, saves: ElfSaves, saveLevels: saveLevels(PixieHD, d => d),
+        thac0: monsterThac0Table(PixieHD), hitDiceTable: PixieHD,
+        preStages: [nmStage(1)],
+        encumbranceTable: encFromColumns([200, 150, 75, 25]),
+        flyingTable: encFromColumns([40, 35, 25, 20, 15, 10, 5]),
+        itemUse: PixieItemUse,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { intelligence: 8, dexterity: 9 }, maxScores: { strength: 13, constitution: 16 },
+        restrictions: [PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour or shield of suitable size",
+        allowedWeapons: "Any weapon of suitable size",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal monster (0 XP, 1 Hit Die) and reach 1st level at 2,000 XP. You fight as a monster of your Hit Dice and save as an elf of a level equal to your Hit Dice." },
+            ...fairyFeatures("Pixies stay invisible even while attacking: you always gain surprise against those who cannot see the invisible, and they attack you at -4 in later rounds."),
+            itemUseFeature("Magic items permitted to fighters work for you (if their size fits)."),
+            { minLevel: 1, name: "Flight", description: "Flying: 180' (60') carrying up to 5 cn; 150' up to 10; 120' up to 15; 90' up to 20; 60' up to 25; 30' up to 35; 15' up to 40 (PC1 Table 18a). After three turns of flying you must rest at least one turn. Walking: 90' (30') up to 25 cn, 60' up to 75, 30' up to 150, 15' up to 200." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Elvish, Gnome, Halfling and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Pooka": {
+        name: "Pooka", source: PC1, hitDie: 8, hpPerLevelAfter9: 1,
+        xpTable: PookaXP, saves: ThiefSaves, saveLevels: saveLevels(PookaHD, (d, lvl) => Math.max(d, lvl)),
+        thac0: monsterThac0Table(PookaHD), hitDiceTable: PookaHD,
+        preStages: [stage("Young Pooka", "Young", -4000, 1, { saveLevel: 1 }), nmStage(2, { saveLevel: 2 })],
+        naturalArmourClass: 7,
+        encumbranceTable: encFromColumns([2400, 1600, 1200, 800, 400]),
+        itemUse: PookaItemUse,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { wisdom: 8, constitution: 5, charisma: 8 },
+        restrictions: ["Starts at -4,000 XP", PC1_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "No armour or shields",
+        allowedWeapons: "Only if your animal shape allows it (e.g. a bipedal mouse); otherwise the real animal's natural attacks",
+        features: [
+            { minLevel: 1, name: "Growing Up", description: "You start at -4,000 XP (1 Hit Die), become a normal monster at 0 XP (2 Hit Dice) and reach 1st level at 4,000 XP. You fight as a monster of your Hit Dice and save as a thief of your level or Hit Dice, whichever is higher." },
+            { minLevel: 1, name: "Animal Shape", description: "You have one animal shape (horse, goat, hound, a bipedal man-sized rabbit in tailored clothes...) and can always speak as a human. Some shapes give natural attacks as the real animal (a riding horse: two hooves, 1-4/1-4, and no weapons)." },
+            { minLevel: 1, name: "Natural Armour", description: "AC 7 (Dexterity applies). You cannot wear armour." },
+            ...fairyFeatures("Unlike other fairies, you may let some mortals see you while staying invisible to the rest. You become visible to anyone you attack."),
+            itemUseFeature("Non-weapon magic items permitted to thieves work for you as usual."),
+            { minLevel: 1, name: "Nightmares", description: "From normal monster on, you may put whatever dreams you wish into a sleeper's mind (save vs. spells). They have no power as such, but may be taken as a sign." },
+            { minLevel: 1, name: "Age Inanimate Object", description: "From normal monster on, at will by touch: speeds up time for a non-living thing (food spoils, metal rusts, wood rots, wine or beer ferments to just the right age)." },
+            { minLevel: 1, name: "Movement", description: "120' (40') carrying up to 400 cn; 90' up to 800; 60' up to 1,200; 30' up to 1,600; 15' up to 2,400; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language and your alignment tongue; you can speak with animals." },
+            { minLevel: 3, name: "Hasten Self", description: "As the haste spell on yourself only: 10 rounds a day at 3rd level, two more rounds a day for every level after (20 at 8th)." },
+            { minLevel: 5, name: "Haste / Slow Other", description: "Cast haste or slow on others as the magic-user spell, once a day at 5th level and one more time a day every two levels (three at 9th)." },
+            { minLevel: 7, name: "Healing", description: "By touch and concentration, restore 1 hp per round; up to twice your level in rounds a day." },
+            { minLevel: 9, name: "Dodge", description: "Step out of time to avoid one attack or spell: a successful save vs. spells avoids it entirely; if the save fails against a spell, you still get its normal save at +2. Only one effect at a time; once a day per level." },
+            { minLevel: 10, name: "Shapechange", description: "Take any normal animal form (one round), once a day per three levels." },
+            { minLevel: 12, name: "Withering", description: "Once a day by touch: the effect of a staff of withering." },
+            { minLevel: 15, name: "Timestop", description: "(PC1 prints no level for this power; it comes between withering at 12th and temporal stasis at 18th, so 15th is assumed.) Like the 9th-level spell, lasting up to your level in rounds, but attacks are possible in only 1-3 of them; item use is limited to non-offensive personal devices. Once a day per five levels (rounded up). From 20th level you can bring one other being with you." },
+            { minLevel: 18, name: "Temporal Stasis", description: "Once a day put yourself or another out of time (unwilling targets save vs. spells) for a period you set, up to one year per level; no ageing, healing, food or air. Dispel magic against your level ends it. You may also make the subject invisible to mortals." },
+        ],
+    },
+    "Redcap": {
+        name: "Redcap", source: PC1, hitDie: 8, hpPerLevelAfter9: 2,
+        xpTable: BrownieXP, saves: HalflingSaves, saveLevels: saveLevels(BrownieHD, d => Math.min(8, d)),
+        thac0: monsterThac0Table(BrownieHD), hitDiceTable: BrownieHD,
+        preStages: [stage("Young Redcap", "Young", -2000, 1, { saveLevel: 1 }), nmStage(2, { saveLevel: 2 })],
+        encumbranceTable: encFromColumns([1200, 800, 600, 400, 200]),
+        itemUse: BrownieItemUse,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { strength: 5, dexterity: 8 }, maxScores: { charisma: 10 },
+        restrictions: ["Starts at -2,000 XP", "Chaotic (an evil brownie)", PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour or shield sized to fit (redcaps favour sturdy iron boots)",
+        allowedWeapons: "As a brownie (pikestaff and knife favoured)",
+        features: [
+            { minLevel: 1, name: "Evil Brownie", description: "Redcaps are the evil kin of brownies, with the same statistics and abilities. They haunt ruins and sites of old tyranny, fear the Immortals (holy symbols may ward them off; holy water does them 2-8 damage) and vanish in a flame when killed, leaving only a large tooth." },
+            { minLevel: 1, name: "Growing Up", description: "You start at -2,000 XP (1 Hit Die), become a normal monster at 0 XP (2 Hit Dice) and reach 1st level at 2,000 XP. You fight as a monster of your Hit Dice and save as a halfling of a level equal to your Hit Dice (8th at most)." },
+            { minLevel: 1, name: "Claws and Bite", description: "Disarmed, you can fight with claw-like nails and a bite (1-2/1-2/1)." },
+            ...fairyFeatures("You have it from the very first stage. You become visible to anyone you attack."),
+            itemUseFeature("Magic items for fighters, dwarves and halflings work for you as usual."),
+            { minLevel: 1, name: "Movement", description: "120' (40') carrying up to 200 cn; 90' up to 400; 60' up to 600; 30' up to 800; 15' up to 1,200; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Halfling and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Sidhe (Warrior)": {
+        name: "Sidhe (Warrior)", source: PC1, hitDie: 8, hpPerLevelAfter9: 1,
+        xpTable: SidheXP, saves: FighterSaves,
+        thac0: monsterThac0Table(SidheWarriorHD), hitDiceTable: SidheWarriorHD,
+        preStages: [nmStage(1, { die: 4 })],
+        multipleAttacks: FIGHTER_ATTACKS,
+        encumbranceTable: encFromColumns([2400, 1600, 1200, 800, 400]),
+        casterType: 'arcane', spellList: 'fairy', spellProgression: SidheSpells,
+        spellListChanges: [{ name: "Polymorph Self", level: 2 }],
+        weaponFeatsProgression: { start: 4, gainLevels: martialFeatLevels },
+        minScores: { strength: 8, intelligence: 8 },
+        restrictions: ["Nothing made of iron", PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour open to fighters, but never of iron (bronze, silver, mithril...)",
+        allowedWeapons: "Any weapon open to fighters, but never of iron (stone, bronze, silver...; enchanted +3 or better is fine)",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal sidhe (0 XP, 1d4 hp, like a normal human) and reach 1st level at 2,500 XP, gaining another 1d4 hp (in effect a 1d8 Hit Die; Constitution applies to both rolls). You fight as a monster of your Hit Dice and save as a fighter of your level." },
+            ...fairyFeatures(),
+            { minLevel: 1, name: "Breathe Water", description: "You breathe water as easily as air." },
+            { minLevel: 1, name: "Iron Is Poison", description: "Iron weapons do you no extra damage, but long contact slowly and permanently drains hit points and ability scores (ingested iron too). You never use weapons, armour or tools of iron." },
+            { minLevel: 1, name: "Magic Items", description: "Any magic item permitted to magic-users or fighters." },
+            { minLevel: 1, name: "Fairy Spells", description: `${fairySpellNote}. Sidhe are renowned shapechangers: polymorph self is a 2nd-level spell for you, and lasts until you choose to return, are killed or it is dispelled.` },
+            { minLevel: 1, name: "Movement", description: "120' (40') carrying up to 400 cn; 90' up to 800; 60' up to 1,200; 30' up to 1,600; 15' up to 2,400; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Dryad, Elvish, Gnome, Treant and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Sidhe (Rogue)": {
+        name: "Sidhe (Rogue)", source: PC1, hitDie: 4, hpPerLevelAfter9: 1,
+        xpTable: SidheXP, saves: ThiefSaves,
+        thac0: monsterThac0Table(SidheRogueHD), hitDiceTable: SidheRogueHD,
+        preStages: [nmStage(1)],
+        thiefSkillsAs: Array.from({ length: 37 }, (_, lvl) => lvl),
+        encumbranceTable: encFromColumns([2400, 1600, 1200, 800, 400]),
+        casterType: 'arcane', spellList: 'fairy', spellProgression: SidheSpells,
+        spellListChanges: [{ name: "Polymorph Self", level: 2 }],
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { strength: 8, intelligence: 8, dexterity: 8 },
+        restrictions: ["Nothing made of iron", PC1_PRIME_NOTE],
+        armour: 'leather', allowedShields: false,
+        allowedArmor: "As a thief (leather), never of iron",
+        allowedWeapons: "Any weapon open to thieves, but never of iron (stone, bronze, silver...; enchanted +3 or better is fine)",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal sidhe (0 XP, 1d4 hp, like a normal human) and reach 1st level at 2,500 XP; rogues gain no hit points for reaching 1st level. You fight as a monster of your Hit Dice and save as a thief of your level." },
+            { minLevel: 1, name: "Thief Skills", description: "You have the special skills of a thief of your level (open locks, backstab...)." },
+            ...fairyFeatures(),
+            { minLevel: 1, name: "Breathe Water", description: "You breathe water as easily as air." },
+            { minLevel: 1, name: "Iron Is Poison", description: "Iron weapons do you no extra damage, but long contact slowly and permanently drains hit points and ability scores (ingested iron too). You never use weapons, armour or tools of iron." },
+            { minLevel: 1, name: "Magic Items", description: "Any magic item permitted to magic-users or thieves." },
+            { minLevel: 1, name: "Fairy Spells", description: `${fairySpellNote}. Sidhe are renowned shapechangers: polymorph self is a 2nd-level spell for you, and lasts until you choose to return, are killed or it is dispelled.` },
+            { minLevel: 1, name: "Movement", description: "120' (40') carrying up to 400 cn; 90' up to 800; 60' up to 1,200; 30' up to 1,600; 15' up to 2,400; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Dryad, Elvish, Gnome, Treant and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Sprite": {
+        name: "Sprite", source: PC1, hitDie: 4, hpPerLevelAfter9: 1,
+        xpTable: PixieXP, saves: ElfSaves, saveLevels: saveLevels(PixieHD, d => d),
+        thac0: monsterThac0Table(PixieHD), hitDiceTable: PixieHD,
+        preStages: [nmStage(1)],
+        naturalArmourClass: 8,
+        encumbranceTable: encFromColumns([150, 75, 25]),
+        flyingTable: encFromColumns([30, 25, 20, 15, 10, 5, 3]),
+        casterType: 'arcane', spellList: 'fairy', spellProgression: SpriteSpells,
+        spellListChanges: [{ id: "fairy_sprite_curse", level: 2 }, { id: "fairy_sprite_confusion", level: 3 }],
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { intelligence: 9, dexterity: 13 }, maxScores: { strength: 9, constitution: 16 },
+        restrictions: [PC1_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None (it hinders flying and spellcasting)",
+        allowedWeapons: "One-handed weapons of your size",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal monster (0 XP, 1 Hit Die) and reach 1st level at 2,000 XP. You fight as a monster of your Hit Dice and save as an elf of a level equal to your Hit Dice." },
+            { minLevel: 1, name: "Natural Armour", description: "AC 8 (Dexterity applies). You wear no armour." },
+            ...fairyFeatures(),
+            { minLevel: 1, name: "Sprite Curse", description: "Five sprites together can cast one of their famous mischievous curses. Higher-level sprites can take curse as a 2nd-level spell of their own (remove curse stays 3rd), and a single-target confusion at 3rd level; anyone protected from being pixy-led is immune to it." },
+            { minLevel: 1, name: "Fairy Spells", description: `${fairySpellNote}. Sprites rise quickly to 7th-level spells but hold fewer in all (63 at 36th level).` },
+            { minLevel: 1, name: "Flight", description: "Flying: 180' (60') carrying up to 3 cn; 150' up to 5; 120' up to 10; 90' up to 15; 60' up to 20; 30' up to 25; 15' up to 30 (PC1 Table 18a). An encumbered flyer must rest one turn after every three turns of flying. Walking: 60' (20') up to 25 cn, 30' up to 75, 15' up to 150." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Elvish, Gnome, Halfling and your alignment tongue; you can speak with animals." },
+        ],
+    },
+    "Treant": {
+        name: "Treant", source: PC1, hitDie: 8, hpPerLevelAfter9: 3,
+        xpTable: TreantXP, saves: FighterSaves, saveLevels: saveLevels(TreantHD, (d, lvl) => Math.max(d, lvl)),
+        thac0: monsterThac0Table(TreantHD), hitDiceTable: TreantHD,
+        preStages: [
+            stage("Sapling", "Young", -48000, 2, { armourClass: 8, saveLevel: 2, attacks: { count: 2, note: "limbs 1-6/1-6" } }),
+            stage("Young Treant", "Young", -36500, 4, { armourClass: 6, saveLevel: 4, attacks: { count: 2, note: "limbs 1-8/1-8" } }),
+            stage("Awakened Treant", "Young", -24000, 6, { armourClass: 4, saveLevel: 6, attacks: { count: 2, note: "limbs 1-10/1-10" } }),
+            nmStage(8, { armourClass: 2, saveLevel: 8 }),
+        ],
+        naturalArmourClass: 2,
+        naturalAttacks: { count: 2, note: "limbs 2-12/2-12" },
+        encumbranceTable: encFromColumns([10000, 5000, 2000]),
+        minScores: { strength: 10, wisdom: 6, constitution: 8 }, maxScores: { dexterity: 13 },
+        restrictions: ["Starts at -48,000 XP", "Druidic (shaman) option at Wisdom 15+ not yet on the sheet", PC1_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None",
+        allowedWeapons: "None: two massive limbs",
+        features: [
+            { minLevel: 1, name: "Growing Up", description: "You awaken at -48,000 XP (2 Hit Dice, AC 8), grow through -36,500 (4 HD, AC 6) and -24,000 (6 HD, AC 4), become a normal monster at 0 XP (8 HD, AC 2) and reach 1st level at 48,000 XP. You fight as a monster of your Hit Dice and save as a fighter of your Hit Dice or level, whichever is greater." },
+            { minLevel: 1, name: "Limbs", description: "Two attacks a round with your limbs: 1-6, 1-8, 1-10 each while growing, 2-12 each from normal monster on (Strength applies). High Hit Dice treants can hit creatures that normally need magic weapons." },
+            { minLevel: 1, name: "Natural Armour", description: "AC 2 (Dexterity applies). You cannot wear armour." },
+            { minLevel: 1, name: "Tough Bark", description: "Blunt weapons do you only 1 point of damage (plus magic or Strength bonuses)." },
+            { minLevel: 1, name: "Fear of Fire", description: "Fire-based attacks do you 1 extra point of damage per die." },
+            { minLevel: 1, name: "Tree Disguise", description: "Standing still in your natural surroundings you look just like a tree: surprise on 1-3 on 1d6." },
+            { minLevel: 1, name: "Animate Trees", description: "From normal monster on, animate any two trees within 60' to move and fight as treants (AC 2, HD 8, #AT 2, Dmg 2-12/2-12, MV 30' (10'), Save F8, ML 12)." },
+            { minLevel: 1, name: "Magic Items", description: "Any magic item permitted to fighters, if its shape fits (a necklace may serve as a ring...)." },
+            { minLevel: 1, name: "Movement", description: "60' (20') carrying up to 2,000 cn; 30' up to 5,000; 15' up to 10,000; more and you cannot move (PC1 Table 18)." },
+            { minLevel: 1, name: "Languages", description: "Treant, the local language, Dryad, Elvish, Fairy and your alignment tongue; you can talk with plants and forest animals." },
+            { minLevel: 10, name: "Brew Potions", description: "Given time, make common potions (especially healing) from natural forest ingredients, as magic-users do." },
+        ],
+    },
+    "Wood Imp": {
+        name: "Wood Imp", source: PC1, hitDie: 4, hpPerLevelAfter9: 2,
+        xpTable: WoodImpXP, saves: FighterSaves,
+        thac0: monsterThac0Table(WoodImpHD), hitDiceTable: WoodImpHD,
+        preStages: [nmStage(1)],
+        encumbranceTable: encFromColumns([200, 150, 75, 25]),
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { strength: 6, dexterity: 6 }, maxScores: { strength: 16, charisma: 16 },
+        restrictions: ["Shaman option at Wisdom 14+ not yet on the sheet", PC1_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Any armour of suitable size",
+        allowedWeapons: "Any weapon of suitable size (bows and two-handed swords preferred)",
+        features: [
+            { minLevel: 1, name: "Normal Monster Stage", description: "You start as a normal monster (0 XP, 1 Hit Die) and reach 1st level at 800 XP. You fight as a monster of your Hit Dice; as a normal monster you save as a normal man, then as a fighter of your level." },
+            { minLevel: 1, name: "Forest Ambush", description: "In forests you gain surprise on 1-3 on 1d6." },
+            { minLevel: 1, name: "Spider Venom", description: "Non-Lawful wood imps may poison their arrows with giant spider venom." },
+            { minLevel: 1, name: "Magic Items", description: "Any magic item permitted to fighters." },
+            { minLevel: 1, name: "Lost Fairy Gifts", description: "Wood imps have lost the fairies' invisibility; there is a 1 in 20 chance that you have second sight." },
+            { minLevel: 1, name: "Movement", description: "90' (30') carrying up to 25 cn; 60' up to 75; 30' up to 150; 15' up to 200; more and you cannot move (PC1 Table 18). Wood imps often ride huge wood spiders." },
+            { minLevel: 1, name: "Languages", description: "Wood Imp, the local language and your alignment tongue; you can speak with arachnids." },
+        ],
+    },
+    "Woodrake": {
+        name: "Woodrake", source: PC1, hitDie: 8, hpPerLevelAfter9: 1,
+        xpTable: WoodrakeXP, saves: MageSaves, saveLevels: saveLevels(WoodrakeHD, d => 2 * d),
+        thac0: monsterThac0Table(WoodrakeHD), hitDiceTable: WoodrakeHD,
+        preStages: [
+            stage("Drakeling", "Young", -16000, 1, { armourClass: 8, saveLevel: 2, thiefLevel: 0, attacks: { count: 3, note: "drake form: claw/claw/bite 1-2/1-2/1-3" } }),
+            stage("Young Drake", "Young", -12000, 2, { armourClass: 6, saveLevel: 4, thiefLevel: 1, attacks: { count: 3, note: "drake form: claw/claw/bite 1-2/1-2/1-4" } }),
+            stage("Adolescent Drake", "Young", -8000, 3, { armourClass: 4, saveLevel: 6, thiefLevel: 3, attacks: { count: 3, note: "drake form: claw/claw/bite 1-2/1-2/1-6" } }),
+            nmStage(4, { armourClass: 2, saveLevel: 8, thiefLevel: 5 }),
+        ],
+        naturalArmourClass: 2,
+        naturalAttacks: { count: 3, note: "drake form: claw/claw/bite 1-2/1-2/1-8" },
+        thiefSkillsAs: WoodrakeThief,
+        encumbranceTable: encFromColumns([3000, 2750, 1500, 750, 500]),
+        flyingTable: encFromColumns([600, 200]),
+        itemUse: WoodrakeItemUse,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { dexterity: 13 },
+        restrictions: ["Starts at -16,000 XP", "Natural AC, movement and claws in drake form only", PC1_PRIME_NOTE],
+        armour: 'leather', allowedShields: false,
+        allowedArmor: "In elf or halfling form, armour permitted to thieves",
+        allowedWeapons: "In elf or halfling form, weapons permitted to thieves",
+        features: [
+            { minLevel: 1, name: "Growing Up", description: "You start at -16,000 XP (1 Hit Die, AC 8), grow through -12,000 (2 HD, AC 6) and -8,000 (3 HD, AC 4), become a normal monster at 0 XP (4 HD, AC 2) and reach 1st level at 16,000 XP. You fight as a monster of your Hit Dice and save as a magic-user of twice your Hit Dice." },
+            { minLevel: 1, name: "Shapechange", description: "At will, change among drake, elf and halfling forms. In drake form (a small red dragon) you have AC 2 and three attacks (claw/claw/bite, up to 1-2/1-2/1-8; Strength applies). In elf or halfling form you use thieves' weapons, armour and magic items and the normal encumbrance rules." },
+            { minLevel: 1, name: "Thief Skills", description: "No skills in the first stage; then as a 1st-level thief, a 3rd-level thief, and a 5th-level thief as a normal monster. From 1st to 10th level, as a thief of your Hit Dice; after that one thief level per two levels (23rd at 36th level)." },
+            itemUseFeature("Magic items permitted to thieves work for you as usual (in elf or halfling form)."),
+            { minLevel: 1, name: "Spell Immunity", description: "From normal monster on, twice your level in spell-immune rounds a day (a normal monster counts as 1st level): immune to spells of 4th level or below. Declare them before the round starts." },
+            { minLevel: 1, name: "Flight", description: "In drake form: 30' (10') carrying up to 200 cn, 15' up to 600 (PC1 Table 18a). Walking in drake form: 120' (40') up to 500 cn; 90' up to 750; 60' up to 1,500; 30' up to 2,750; 15' up to 3,000." },
+            { minLevel: 1, name: "Second Sight", description: "Like all fairies you recognise a fairy's true form, even when it is invisible to mortals or shapechanged." },
+            { minLevel: 1, name: "Languages", description: "Fairy, the local language, Elvish, Halfling and your alignment tongue; you can speak with animals." },
+            { minLevel: 2, name: "Invisible to Mortals", description: "From 2nd level you may use the fairy invisibility to mortals again; you become visible to anyone you attack." },
+
+        ],
+    },
+};
+Object.assign(ClassesDatabase, PC1WoodlandClasses);

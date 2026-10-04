@@ -11,8 +11,42 @@ const ENCUMBRANCE_TIERS = [
 ];
 const ENCUMBRANCE_BAR_MAX = 2400;
 
-function getEncumbranceTier(cn) {
-    return ENCUMBRANCE_TIERS.find(t => cn <= t.max);
+// Some creature heroes have their own table (centaur: PC1 Table 18). The rows get the
+// usual load names from fastest to slowest, the last ones always Overloaded / Immobile.
+const ENCUMBRANCE_LOOKS = ENCUMBRANCE_TIERS.slice(0, 5);
+function getEncumbranceTiers(character) {
+    const own = character && window.ClassesDatabase?.[character.characterClass]?.encumbranceTable;
+    if (!Array.isArray(own) || !own.length) return ENCUMBRANCE_TIERS;
+    const names = ['Unencumbered', 'Light Load', 'Moderate Load', 'Heavy Load', 'Very Heavy Load', 'Severe Load'];
+    const tiers = own.map((row, i) => {
+        const last = i === own.length - 1;
+        const look = ENCUMBRANCE_LOOKS[Math.min(ENCUMBRANCE_LOOKS.length - 1, Math.round(i * (ENCUMBRANCE_LOOKS.length - 1) / Math.max(1, own.length - 1)))];
+        return { ...look, max: row.max, speed: row.speed, label: last ? 'Overloaded' : (names[i] || 'Severe Load') };
+    });
+    tiers.push({ ...ENCUMBRANCE_TIERS[ENCUMBRANCE_TIERS.length - 1], max: Infinity });
+    return tiers;
+}
+
+function getEncumbranceTier(cn, character = window.currentCharacter) {
+    return getEncumbranceTiers(character).find(t => cn <= t.max);
+}
+
+function encumbranceBarMax(character = window.currentCharacter) {
+    const tiers = getEncumbranceTiers(character);
+    return tiers.length > 1 ? tiers[tiers.length - 2].max : ENCUMBRANCE_BAR_MAX;
+}
+
+// The Combat tab's Load list follows the character's own table.
+function syncMovementLoadOptions(character = window.currentCharacter) {
+    const sel = document.getElementById('movement-load');
+    if (!sel) return;
+    const tiers = getEncumbranceTiers(character);
+    const sig = tiers.map(t => t.speed).join(',');
+    if (sel.dataset.sig === sig) return;
+    const keep = sel.value;
+    sel.innerHTML = tiers.map(t => `<option value="${t.speed}">${t.label} (${t.speed}')</option>`).join('');
+    sel.dataset.sig = sig;
+    sel.value = tiers.some(t => String(t.speed) === keep) ? keep : String(tiers[0].speed);
 }
 
 function getBagContentsWeight(bag, items) {
@@ -101,12 +135,13 @@ function syncInventoryUI() {
     }
 
     if (barEl) {
-        const pct = Math.min(100, Math.round((totalWeight / ENCUMBRANCE_BAR_MAX) * 100));
+        const pct = Math.min(100, Math.round((totalWeight / encumbranceBarMax(currentCharacter)) * 100));
         barEl.style.width = pct + '%';
         barEl.style.background = color;
     }
 
     // Синхронизация боевой скорости в тактическом баре
+    syncMovementLoadOptions(currentCharacter);
     const moveSelect = document.getElementById('movement-load');
     if (moveSelect && moveSelect.value !== String(baseTurnSpeed)) {
         moveSelect.value = String(baseTurnSpeed);
@@ -434,16 +469,111 @@ function renderEquipmentList() {
     renderCustomItemList(gear, list, false);
 }
 
-// --- Sorting and "for trade" -------------------------------------------------
-// The chosen order is kept per character (inventorySort); "for trade" is a flag on the item.
+// --- Sorting, filtering and "for trade" ---------------------------------------
+// Kept per character: inventorySort (order) and inventoryShow { trade: bool, places: [...] }
+// (no places ticked = every place; "for trade" narrows whatever places are shown).
+// "For trade" is a flag on the item.
 const INV_SORTS = {
     added: null,
     name: (a, b) => String(a.name || '').localeCompare(String(b.name || '')),
     weight: (a, b) => (Number(b.weight) || 0) * (Number(b.qty) || 0) - (Number(a.weight) || 0) * (Number(a.qty) || 0),
     value: (a, b) => (Number(b.cost) || 0) * Math.max(1, Number(b.qty) || 0) - (Number(a.cost) || 0) * Math.max(1, Number(a.qty) || 0),
     location: (a, b) => inventoryLocationName(a).localeCompare(inventoryLocationName(b)),
-    trade: (a, b) => Number(Boolean(b.forTrade)) - Number(Boolean(a.forTrade)),
 };
+const INV_PLACES = [['Carried', 'Carried / belt'], ['Backpack', 'Backpack'], ['Sack', 'Sack'], ['Saddlebags', 'Saddlebags'], ['Vault', 'Vault / stronghold']];
+function inventoryShowState() {
+    const c = currentCharacter || {};
+    if (c.inventoryTradeOnly) { c.inventoryShow = 'trade'; delete c.inventoryTradeOnly; }      // older setting
+    if (c.inventorySort === 'trade') c.inventorySort = 'added';                                // removed sort
+    let s = c.inventoryShow;
+    // Older single choices: 'all', 'trade', 'loc:<where>'.
+    if (typeof s === 'string') s = s === 'trade' ? { trade: true, places: [] } : s.startsWith('loc:') ? { trade: false, places: [s.slice(4)] } : null;
+    if (!s || typeof s !== 'object') return { trade: false, places: [] };
+    return { trade: Boolean(s.trade), places: Array.isArray(s.places) ? s.places.map(String) : [] };
+}
+function inventoryShowMode() {
+    const s = inventoryShowState();
+    return !s.trade && !s.places.length ? 'all' : s.trade && !s.places.length ? 'trade' : 'filtered';
+}
+// Every place an item can be kept: the fixed spots, bags of holding, mounts, and homes.
+function inventoryPlaces(extra) {
+    const c = currentCharacter || {};
+    const places = INV_PLACES.map(([v, l]) => [v, l]);
+    (c.bagsOfHolding || []).forEach(b => places.push([b.id, `Bag: ${b.name}`]));
+    (c.mounts || []).forEach(m => places.push([m.id, `On ${m.name}`]));
+    (c.holdings || []).filter(h => h.status !== 'lost').forEach(h => places.push([h.id, `Home: ${h.name}`]));
+    if (extra && !places.some(p => p[0] === extra)) places.push([extra, extra]);
+    return places;
+}
+
+// Same item apart from where it is and how many: such stacks are merged when moved together.
+function sameItemStack(a, b) {
+    const strip = x => { const { qty, location, forTrade, id, ...rest } = x; return JSON.stringify(rest); };
+    return strip(a) === strip(b);
+}
+
+// Move an item (or part of a stack) to another place.
+async function moveInventoryItem(index, place, selectEl) {
+    const items = currentCharacter && currentCharacter.inventory;
+    const item = items && items[index];
+    if (!item || !place) return;
+    const from = item.location || 'Backpack';
+    if (place === from) return;
+    const qty = Number(item.qty) || 0;
+    let howMany = qty;
+    if (qty > 1 && typeof notesFormModal === 'function') {
+        const placeName = (inventoryPlaces().find(p => p[0] === place) || [place, place])[1];
+        const res = await notesFormModal({
+            title: `Move ${item.name}`,
+            values: { n: String(qty) },
+            fields: [{ key: 'n', label: `How many to ${placeName}? (of ${qty})`, wide: true }],
+            okText: 'Move',
+        });
+        if (!res || res === '__delete__') { if (selectEl) selectEl.value = from; return; }
+        howMany = Math.max(0, Math.min(qty, Math.round(Number(res.n) || 0)));
+        if (!howMany) { if (selectEl) selectEl.value = from; return; }
+    }
+    const target = items.find(o => o !== item && (o.location || 'Backpack') === place && sameItemStack(o, item));
+    if (howMany >= qty) {
+        if (target) { target.qty = (Number(target.qty) || 0) + qty; items.splice(index, 1); }
+        else item.location = place;
+    } else {
+        item.qty = qty - howMany;
+        if (target) target.qty = (Number(target.qty) || 0) + howMany;
+        else items.splice(index + 1, 0, { ...JSON.parse(JSON.stringify(item)), qty: howMany, location: place, id: item.id ? item.id + '_' + Date.now().toString(36) : undefined });
+    }
+    syncInventoryUI();
+    if (typeof debouncedSave === 'function') debouncedSave();
+}
+
+// Move every item the Show filter currently lists (weapons, magic items and gear) to one place.
+async function moveShownItems(place, selectEl) {
+    if (selectEl) selectEl.value = '';
+    if (!currentCharacter || !place) return;
+    const items = currentCharacter.inventory || [];
+    const shown = items.filter(i => !(i.isValuable || i.valueGP > 0) && inventoryShowFilter(i) && (i.location || 'Backpack') !== place);
+    const placeName = (inventoryPlaces().find(p => p[0] === place) || [place, place])[1];
+    if (!shown.length) { await sheetAlert(`Everything shown is already in ${placeName}.`); return; }
+    const filterNote = inventoryShowMode() === 'all' ? 'all your items' : 'every item shown by the current filter';
+    if (!(await sheetConfirm(`Move ${shown.length} item${shown.length > 1 ? 's' : ''} (${filterNote}) to ${placeName}?`, 'Move'))) return;
+    shown.forEach(it => {
+        const target = items.find(o => o !== it && (o.location || 'Backpack') === place && sameItemStack(o, it));
+        if (target) { target.qty = (Number(target.qty) || 0) + (Number(it.qty) || 0); it.__gone = true; }
+        else it.location = place;
+    });
+    currentCharacter.inventory = items.filter(i => !i.__gone);
+    syncInventoryUI();
+    if (typeof debouncedSave === 'function') debouncedSave();
+}
+window.moveInventoryItem = moveInventoryItem;
+window.moveShownItems = moveShownItems;
+
+function inventoryShowFilter(item) {
+    const s = inventoryShowState();
+    if (s.trade && !item.forTrade) return false;
+    if (s.places.length && !s.places.includes(item.location || 'Backpack')) return false;
+    return true;
+}
 function inventoryLocationName(item) {
     const c = currentCharacter || {};
     const box = [...(c.bagsOfHolding || []), ...(c.mounts || []), ...(c.holdings || [])].find(x => x.id === item.location);
@@ -451,8 +581,7 @@ function inventoryLocationName(item) {
 }
 function sortInventorySubset(subset) {
     const mode = (currentCharacter && currentCharacter.inventorySort) || 'added';
-    const tradeOnly = Boolean(currentCharacter && currentCharacter.inventoryTradeOnly);
-    let list = tradeOnly ? subset.filter(i => i.forTrade) : subset.slice();
+    let list = subset.filter(inventoryShowFilter);
     const cmp = INV_SORTS[mode];
     // Stable sort, ties keep the order the items were added; names break ties for the other sorts.
     if (cmp) list = list.map((it, i) => ({ it, i })).sort((x, y) => cmp(x.it, y.it) || (mode !== 'name' ? INV_SORTS.name(x.it, y.it) : 0) || x.i - y.i).map(x => x.it);
@@ -464,9 +593,19 @@ function setInventorySort(mode) {
     syncInventoryUI();
     if (typeof debouncedSave === 'function') debouncedSave();
 }
-function setInventoryTradeOnly(on) {
+// mode: 'all' (clear), 'trade' (toggle), or 'loc:<where>' (toggle that place).
+function setInventoryShow(mode, on) {
     if (!currentCharacter) return;
-    currentCharacter.inventoryTradeOnly = Boolean(on);
+    const s = inventoryShowState();
+    if (!mode || mode === 'all') { s.trade = false; s.places = []; }
+    else if (mode === 'trade') s.trade = on === undefined ? !s.trade : Boolean(on);
+    else if (mode.startsWith('loc:')) {
+        const p = mode.slice(4); const has = s.places.includes(p);
+        const want = on === undefined ? !has : Boolean(on);
+        if (want && !has) s.places.push(p); else if (!want && has) s.places = s.places.filter(x => x !== p);
+    }
+    if (!s.trade && !s.places.length) delete currentCharacter.inventoryShow; else currentCharacter.inventoryShow = s;
+    delete currentCharacter.inventoryTradeOnly;
     syncInventoryUI();
     if (typeof debouncedSave === 'function') debouncedSave();
 }
@@ -481,8 +620,32 @@ function renderInventoryToolbar() {
     if (!currentCharacter) return;
     const sel = document.getElementById('inv-sort');
     if (sel) sel.value = currentCharacter.inventorySort || 'added';
-    const only = document.getElementById('inv-trade-only');
-    if (only) only.checked = Boolean(currentCharacter.inventoryTradeOnly);
+    const show = document.getElementById('inv-show');
+    if (show) {
+        const c = currentCharacter;
+        const st = inventoryShowState();
+        const places = inventoryPlaces();
+        // Any other place an item was put (older or hand-typed locations).
+        (c.inventory || []).forEach(i => { const l = i.location || 'Backpack'; if (!places.some(p => p[0] === l)) places.push([l, l]); });
+        const count = pred => (c.inventory || []).filter(pred).length;
+        const box = (val, label, n, checked) => `<label class="inv-show-opt"><input type="checkbox" ${checked ? 'checked' : ''} onchange="setInventoryShow('${escapeHtml(val).replace(/'/g, '&#39;')}', this.checked)"> <span>${escapeHtml(label)}</span> <span class="inv-show-n">${n}</span></label>`;
+        const placeNames = st.places.map(p => (places.find(x => x[0] === p) || [p, p])[1]);
+        const summary = !st.trade && !st.places.length ? `All items (${count(() => true)})`
+            : [st.trade ? 'For trade' : '', placeNames.length > 2 ? `${placeNames.length} places` : placeNames.join(' + ')].filter(Boolean).join(' · ')
+              + ` (${count(inventoryShowFilter)})`;
+        const wasOpen = show.open;
+        show.innerHTML = `<summary class="stat-input">${escapeHtml(summary)}</summary>
+            <div class="inv-show-menu">
+                <button type="button" class="btn btn-sm" onclick="setInventoryShow('all')" ${!st.trade && !st.places.length ? 'disabled' : ''}>Show everything</button>
+                ${box('trade', 'Only items for trade', count(i => i.forTrade), st.trade)}
+                <div class="inv-show-sep">Kept in (none ticked = everywhere)</div>
+                ${places.map(([v, l]) => box(`loc:${v}`, l, count(i => (i.location || 'Backpack') === v), st.places.includes(v))).join('')}
+            </div>`;
+        show.open = wasOpen;
+        show.classList.toggle('inv-filter-on', st.trade || st.places.length > 0);
+    }
+    const mv = document.getElementById('inv-move-all');
+    if (mv) mv.innerHTML = `<option value="">Choose a place…</option>` + inventoryPlaces().map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
     const sum = document.getElementById('inv-trade-summary');
     if (sum) {
         const trade = (currentCharacter.inventory || []).filter(i => i.forTrade);
@@ -494,13 +657,13 @@ function renderInventoryToolbar() {
     }
 }
 window.setInventorySort = setInventorySort;
-window.setInventoryTradeOnly = setInventoryTradeOnly;
+window.setInventoryShow = setInventoryShow;
 window.toggleItemForTrade = toggleItemForTrade;
 
 function renderCustomItemList(subset, container, isWeaponSection) {
     subset = sortInventorySubset(subset);
-    if (!subset.length && currentCharacter.inventoryTradeOnly) {
-        container.innerHTML = '<div class="ledger-note">Nothing here is marked for trade.</div>';
+    if (!subset.length && inventoryShowMode() !== 'all') {
+        container.innerHTML = `<div class="ledger-note">${inventoryShowMode() === 'trade' ? 'Nothing here is marked for trade.' : 'Nothing of this kind matches the Show filter.'}</div>`;
         return;
     }
     const allItems = currentCharacter.inventory || [];
@@ -523,9 +686,9 @@ function renderCustomItemList(subset, container, isWeaponSection) {
         const qty = Number(item.qty) || 0;
         const totalItemWeight = Math.round((Number(item.weight) || 0) * qty * 100) / 100;
         const isDepleted = qty <= 0;
-        const isAmmoOrConsumable = item.category === 'ammo' || item.category === 'consumable' || 
-            item.name.toLowerCase().includes('arrow') || item.name.toLowerCase().includes('bolt') || 
-            item.name.toLowerCase().includes('torch') || item.name.toLowerCase().includes('ration');
+        // Whole words only: "Ring of Regeneration" is not a ration, "Thunderbolt" boots are not bolts.
+        const isAmmoOrConsumable = item.category === 'ammo' || item.category === 'consumable' ||
+            (!item.magic && !item.slot && /\b(arrows?|bolts?|quarrels?|torch(es)?|rations?)\b/i.test(item.name || ''));
 
         let locLabel = containerMap[item.location] || item.location || 'Backpack';
         const isOutsidePC = Boolean(containerMap[item.location]);
@@ -545,6 +708,7 @@ function renderCustomItemList(subset, container, isWeaponSection) {
         if (item.intelligence) extraBadges.push(`<span class="tag" style="color: var(--arcane);">Int ${Number(item.intelligence.int) || ''}</span>`);
         if (item.acBonus && !item.isShield) extraBadges.push(`<span class="tag" style="color: var(--info);">AC -${Number(item.acBonus)}</span>`);
         if (item.saveBonus) extraBadges.push(`<span class="tag" style="color: var(--info);">Saves +${Number(item.saveBonus)}</span>`);
+        if (typeof saveBonusByTag === 'function') { const t = saveBonusByTag(item); if (t) extraBadges.push(t); }
         extraBadges.push(...abilityEffectTags(item));
         if (item.armourAC != null && item.armourAC !== '') extraBadges.push(`<span class="tag" style="color: var(--info);" title="Only with no armour and no shield">AC ${Number(item.armourAC)} unarmoured</span>`);
         if (item.isArmor && item.baseAC !== undefined) extraBadges.push(`<span class="tag">AC ${Number(item.baseAC) - (Number(item.magicBonus) || 0)}</span>`);
@@ -580,7 +744,7 @@ function renderCustomItemList(subset, container, isWeaponSection) {
                     ${cursedBadge}
                     ${extraBadges.join('')}
                     ${item.forTrade ? '<span class="tag inv-trade-tag" title="Marked for trade">For trade</span>' : ''}
-                    <span style="font-size: 0.7rem; color: var(--text-muted); border: 1px solid color-mix(in srgb, var(--text-main) 8%, transparent); padding: 0 4px; border-radius: 2px; white-space: nowrap;">${locLabel}</span>
+                    <select class="inv-loc-select" onchange="moveInventoryItem(${originalIndex}, this.value, this)" title="Where it is kept: choose another place to move it" aria-label="Move ${escapeHtml(item.name)}">${inventoryPlaces(item.location || 'Backpack').map(([v, l]) => `<option value="${escapeHtml(v)}" ${v === (item.location || 'Backpack') ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
@@ -671,6 +835,12 @@ function editInventoryItem(index) {
     const concBox = document.getElementById('item-requires-concentration'); if (concBox) concBox.checked = Boolean(item.concentration);
     safeSetVal('item-slot-input', item.slot || '');
     const carried = document.getElementById('item-active-carried'); if (carried) carried.checked = Boolean(item.activeWhileCarried);
+    safeSetVal('item-defence-kind', item.isShield ? 'shield' : (item.isArmor ? String(item.baseAC !== undefined && item.baseAC !== null ? Number(item.baseAC) : 7) : ''));
+    safeSetVal('item-ac-bonus', !item.isShield && Number(item.acBonus) ? Number(item.acBonus) : '');
+    safeSetVal('item-save-bonus', Number(item.saveBonus) ? Number(item.saveBonus) : '');
+    const magicBox = document.getElementById('item-is-magic'); if (magicBox) magicBox.checked = item.magic === true || MAGIC_ITEM_GROUPS.includes(item.group);
+    safeSetVal('item-magic-type', MAGIC_ITEM_GROUPS.includes(item.group) ? item.group : 'misc');
+    const magicType = document.getElementById('item-magic-type'); if (magicType) magicType.disabled = !(magicBox && magicBox.checked);
     renderItemAbilityEffectRows(typeof itemAbilityMods === 'function' ? itemAbilityMods(item) : (item.abilityMods || []));
 }
 
@@ -717,7 +887,7 @@ function useItemCharge(index) {
     if (typeof debouncedSave === 'function') debouncedSave();
 }
 
-function openAddItemModal(defaultCategory = 'equipment') {
+function openAddItemModal(defaultCategory = 'equipment', opts = {}) {
     const modal = document.getElementById('item-modal');
     if (!modal) return;
     editingItemIndex = null;
@@ -741,6 +911,10 @@ function openAddItemModal(defaultCategory = 'equipment') {
     if (concBox) concBox.checked = false;
     safeSetVal('item-slot-input', '');
     const carried = document.getElementById('item-active-carried'); if (carried) carried.checked = false;
+    safeSetVal('item-defence-kind', ''); safeSetVal('item-ac-bonus', ''); safeSetVal('item-save-bonus', '');
+    const magicBox = document.getElementById('item-is-magic'); if (magicBox) magicBox.checked = Boolean(opts.magic);
+    safeSetVal('item-magic-type', 'misc');
+    const magicType = document.getElementById('item-magic-type'); if (magicType) magicType.disabled = !opts.magic;
     renderItemAbilityEffectRows([]);
 
     if (typeof populateItemLocationSelect === 'function') populateItemLocationSelect();
@@ -763,6 +937,39 @@ function saveInventoryItem() {
     const slot = document.getElementById('item-slot-input')?.value || undefined;
     const activeWhileCarried = document.getElementById('item-active-carried')?.checked || false;
     const abilityMods = readItemAbilityEffects();
+    const isMagic = document.getElementById('item-is-magic')?.checked || false;
+    const magicType = document.getElementById('item-magic-type')?.value || 'misc';
+    // Marked as a magic item: it goes to the Magic Items list; rings go on a finger, wands/staves/rods in the hand.
+    const applyMagic = it => {
+        if (isMagic) {
+            it.magic = true;
+            if (!it.isArmor && !it.isShield && it.category !== 'weapon' && it.category !== 'ammo') {
+                it.group = magicType;
+                if (magicType === 'ring') it.slot = 'ring';
+                if (['potion', 'scroll'].includes(magicType)) it.category = 'consumable';
+            }
+        } else if (it.magic && !it.catalogId && !(Array.isArray(it.abilityMods) && it.abilityMods.length) && !it.acBonus && !it.saveBonus) {
+            delete it.magic;
+            if (MAGIC_ITEM_GROUPS.includes(it.group)) delete it.group;
+        }
+    };
+    const defenceKind = document.getElementById('item-defence-kind')?.value || '';
+    const acBonusIn = Math.max(0, Math.min(10, Number(document.getElementById('item-ac-bonus')?.value) || 0));
+    const saveBonusIn = Math.max(0, Math.min(10, Number(document.getElementById('item-save-bonus')?.value) || 0));
+    // Armour, shield, AC and save bonuses from the form (the paperdoll and saving throws read these).
+    const applyDefence = it => {
+        if (defenceKind === 'shield') {
+            it.isShield = true; it.acBonus = 1; delete it.isArmor; delete it.baseAC; delete it.slot; it.group = it.group || 'armour';
+        } else if (defenceKind !== '') {
+            it.isArmor = true; it.baseAC = Number(defenceKind); delete it.isShield; delete it.slot; it.group = it.group || 'armour';
+            if (acBonusIn) it.acBonus = acBonusIn; else delete it.acBonus;
+        } else {
+            if (it.isArmor || it.isShield) { delete it.isArmor; delete it.isShield; delete it.baseAC; if (it.group === 'armour') delete it.group; }
+            if (acBonusIn) it.acBonus = acBonusIn; else delete it.acBonus;
+        }
+        if (saveBonusIn) it.saveBonus = saveBonusIn; else delete it.saveBonus;
+        if (it.acBonus && !it.isShield || it.saveBonus) it.magic = true;
+    };
     const errorEl = document.getElementById('item-modal-error');
 
     if (!name) {
@@ -775,8 +982,10 @@ function saveInventoryItem() {
         // Keep catalogue data (weapon id, armour AC, talents...) and change what the form shows.
         const it = currentCharacter.inventory[editingItemIndex];
         Object.assign(it, { name, category, qty, weight, location, magicBonus, isCursed, concentration, charges, desc, activeWhileCarried, abilityMods });
+        if (it.category !== 'weapon') applyDefence(it);
+        applyMagic(it);
         // Weapons, armour and wands keep their own slot rules; anything else may be given a worn slot.
-        if (!it.isArmor && !it.isShield && it.category !== 'weapon' && !['wand', 'staff', 'rod'].includes(it.group)) { if (slot) it.slot = slot; else delete it.slot; }
+        if (!it.isArmor && !it.isShield && it.category !== 'weapon' && !['wand', 'staff', 'rod'].includes(it.group)) { if (slot) it.slot = slot; else if (it.group !== 'ring') delete it.slot; }
         editingItemIndex = null;
         closeAddItemModal();
         if (typeof debouncedSave === 'function') debouncedSave();
@@ -784,7 +993,7 @@ function saveInventoryItem() {
         if (typeof afterEquipChange === 'function') afterEquipChange();
         return;
     }
-    currentCharacter.inventory.push({
+    const fresh = {
         name,
         category, // 'weapon' | 'ammo' | 'consumable' | 'equipment'
         qty,
@@ -799,12 +1008,15 @@ function saveInventoryItem() {
         ...(slot && category !== 'weapon' && category !== 'ammo' ? { slot } : {}),
         ...(abilityMods.length ? { abilityMods, magic: true } : {}),
         ...(activeWhileCarried ? { activeWhileCarried } : {}),
-    });
+    };
+    if (category !== 'weapon' && category !== 'ammo') applyDefence(fresh);
+    applyMagic(fresh);
+    currentCharacter.inventory.push(fresh);
 
     closeAddItemModal();
     if (typeof debouncedSave === 'function') debouncedSave();
     syncInventoryUI();
-    if (abilityMods.length && typeof afterEquipChange === 'function') afterEquipChange();
+    if ((abilityMods.length || (activeWhileCarried && (fresh.acBonus || fresh.saveBonus))) && typeof afterEquipChange === 'function') afterEquipChange();
 }
 
 function closeAddItemModal() {
@@ -1442,3 +1654,9 @@ window.consumeAmmunition = consumeAmmunition;
 window.refillAmmunition = refillAmmunition;
 window.renderWeaponsList = renderWeaponsList;
 window.renderEquipmentList = renderEquipmentList;
+
+// The Show list closes when you click anywhere else.
+document.addEventListener('click', e => {
+    const dd = document.getElementById('inv-show');
+    if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
+});
