@@ -155,6 +155,7 @@ function syncInventoryUI() {
     renderMagicItemsList();
     renderEquipmentList();
     renderInventoryToolbar();
+    if (typeof renderSupplies === 'function') { try { renderSupplies(); } catch (e) { console.error(e); } }
 }
 
 // Pack and riding animals and vehicles: Dark Dungeons Tables 8-4 and 8-5 (items-data.js).

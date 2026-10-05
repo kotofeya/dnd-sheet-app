@@ -30,6 +30,8 @@ const CLASS_ADJUSTMENTS = {
     'Centaur':       { up: [], down: [], note: 'PC1 gives centaurs no ability adjustment.' },
     ...Object.fromEntries(['Brownie', 'Dryad', 'Faun', 'Hsiao', 'Leprechaun', 'Pixie', 'Pooka', 'Redcap', 'Sidhe (Rogue)', 'Sidhe (Warrior)',
         'Sprite', 'Treant', 'Wood Imp', 'Woodrake'].map(c => [c, { up: [], down: [], note: 'PC1 gives woodland beings no ability adjustment; scores above the race maximum are lowered to it.' }])),
+    ...Object.fromEntries(['Faenare', 'Gremlin', 'Harpy', 'Nagpa', 'Pegataur', 'Sphinx (Female)', 'Sphinx (Male)', 'Tabi']
+        .map(c => [c, { up: [], down: [], note: 'PC2: scores above the race maximum are lowered to it (the book lets you trade points to fit, as in the Basic rules).' }])),
 };
 // Compendium: start at the lowest level of the campaign; starting gold is multiplied by it.
 const START_LEVELS = [
@@ -192,7 +194,12 @@ function ccRollHp() {
         const dice = (cc.startLevel === 1 && first) ? first.dice : (info.hitDiceTable[cc.startLevel] || [1, 0])[0];
         const hdDie = (cc.startLevel === 1 && first?.die) ? first.die : die;
         const plus = (cc.startLevel === 1 && ccIsCreature()) ? 0 : ((info.hitDiceTable[cc.startLevel] || [1, 0])[1] || 0);
-        for (let i = 0; i < dice; i++) { const r = ccRoll(hdDie); rolls.push(r); total += Math.max(1, r + con); }
+        for (let i = 0; i < dice; i++) {
+            let r = ccRoll(hdDie);
+            // PC2: a first Hit Die roll below the average counts as the average (5 on a d8).
+            if (i === 0 && info.firstHitDieAverage) r = Math.max(r, Math.ceil((hdDie + 1) / 2));
+            rolls.push(r); total += Math.max(1, r + con);
+        }
         total += plus;
     } else {
         const dice = Math.min(cc.startLevel, 9);

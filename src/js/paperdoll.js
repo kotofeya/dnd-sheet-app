@@ -305,6 +305,10 @@ function itemRestriction(item, slot, character) {
     if (item.centaurOnly && cls !== 'Centaur') return `${item.name || 'This barding'} is made for a centaur.`;
     if (cls === 'Centaur' && slot === 'armor' && item.isArmor && !item.centaurOnly && !item.anyClass)
         return `A centaur needs barding made for its body (PC1): ${item.name || 'this armour'} does not fit. Look for Centaur Barding in the catalogue.`;
+    // Pegataur barding (PC2 p. 39) likewise.
+    if (item.pegataurOnly && cls !== 'Pegataur') return `${item.name || 'This barding'} is made for a pegataur.`;
+    if (cls === 'Pegataur' && slot === 'armor' && item.isArmor && !item.pegataurOnly && !item.anyClass)
+        return `A pegataur needs barding made for its horse body (PC2): ${item.name || 'this armour'} does not fit. Look for Pegataur Barding in the catalogue.`;
     if (cls !== 'Mystic') return '';
     if (slot === 'offHand' ? isShieldItem(item) : isProtectiveItem(item)) {
         return `Mystics never use shields or protective devices (rings, cloaks, bracers of protection...): ${item.name || 'this item'} is not allowed.`;
@@ -321,6 +325,7 @@ function getNaturalArmourClass(character) {
     if (info.mysticTable) return info.mysticTable.armourClass[lvl] ?? 9;
     const stage = typeof window.getCreatureStage === 'function' ? window.getCreatureStage(character) : null;
     if (stage && stage.armourClass !== undefined) return stage.armourClass;
+    if (Array.isArray(info.naturalArmourByLevel) && info.naturalArmourByLevel[lvl] !== undefined) return info.naturalArmourByLevel[lvl];
     return info.naturalArmourClass ?? null;
 }
 

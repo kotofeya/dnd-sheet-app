@@ -153,7 +153,7 @@ function getAttacksPerRound(className, level, character) {
     // PC1 woodland beings with claws or limbs (hsiao, treant, woodrake in drake form), by stage while growing.
     const natInfo = window.ClassesDatabase[className] || {};
     const natStage = (character && typeof window.getCreatureStage === 'function') ? window.getCreatureStage(character) : null;
-    const natural = natStage?.attacks || natInfo.naturalAttacks;
+    const natural = natStage?.attacks || natInfo.naturalAttacksByLevel?.[lvl] || natInfo.naturalAttacks;
     if (natural) return { count: natural.count, note: natural.note, natural: true };
     if (className === 'Mystic') {
         if (lvl >= 13) return { count: 4, note: "Strike to Kill (Unarmed)" };

@@ -196,6 +196,8 @@ async function advanceTime(secs, opts = {}) {
         }
     }
     if (typeof renderBirthday === 'function') { try { renderBirthday(); } catch (e) { console.error(e); } }
+    // Daily uses refill, rations are eaten and lights burn down (js/everyday.js).
+    if (typeof everydayTimePassed === 'function') { try { notes.push(...everydayTimePassed(before, after, secs)); } catch (e) { console.error(e); } }
     // Monthly bills paid by themselves (option): one charge for each month that began.
     const autoPaid = c.settings.autoPay ? autoPayMonthly(after) : [];
     notes.push(...autoPaid);

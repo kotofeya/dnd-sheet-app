@@ -37,6 +37,7 @@ function renderClassProficiencies() {
 }
 
 function updateClassFeaturesDisplay() {
+    if (typeof renderDailyUses === 'function') { try { renderDailyUses(); } catch (e) { console.error(e); } }
     const mainList = document.getElementById('main-features-list');
     const subList = document.getElementById('sub-features-list');
     const subCard = document.getElementById('subclass-features-card');
@@ -66,6 +67,19 @@ function updateClassFeaturesDisplay() {
         const availableFeatures = classInfo.features.filter(f => 
             level >= f.minLevel && !combatKeywords.some(k => f.name.toLowerCase().includes(k))
         );
+        // Level-based values (PC2 gremlin aura, sphinx roar) for the current stage or level.
+        const ls = classInfo.levelStats;
+        if (ls) {
+            const rows = ls.levels || [];
+            const vals = stage ? (stage.stats || []) : (rows[Math.min(Number(level) || 1, rows.length - 1)] || []);
+            if (vals.length) {
+                const row = document.createElement('div');
+                row.className = 'note-col';
+                row.innerHTML = `<div class="note-col-head"><span class="note-col-title">${escapeHtml(ls.name)}</span><span class="eyebrow">${escapeHtml(stage ? stage.name : 'Level ' + toRoman(level))}</span></div>
+                    <div class="note-col-body level-stats">${ls.columns.map((c, i) => `<div><span>${escapeHtml(c)}</span><strong>${escapeHtml(vals[i] ?? '—')}</strong></div>`).join('')}</div>`;
+                mainList.appendChild(row);
+            }
+        }
         if (availableFeatures.length === 0) {
             mainList.innerHTML = '<div class="ledger-note">No abilities unlocked at this level.</div>';
         } else {
@@ -143,12 +157,63 @@ function chivalricLevel(level) {
     return Math.ceil((Number(level) || 0) / 3);
 }
 
+// PC2 restricted lists (RC p. 216 "Spells Usable by Shamans / Wokani"; PC2 p. 29 tabi spells):
+// [spell type, level, name] for each spell.
+const PC2_SPELL_LISTS = {
+    shaman: [
+        ['divine', 1, 'Cure Light Wounds'], ['divine', 1, 'Detect Magic'], ['divine', 1, 'Light'], ['divine', 1, 'Protection from Evil'],
+        ['divine', 2, 'Bless'], ['divine', 2, 'Hold Person'], ['divine', 2, 'Snake Charm'], ['divine', 2, 'Speak with Animal'],
+        ['divine', 3, 'Continual Light'], ['divine', 3, 'Cure Blindness'], ['divine', 3, 'Cure Disease'], ['divine', 3, 'Remove Curse'],
+        ['divine', 4, 'Cure Serious Wounds'], ['divine', 4, 'Dispel Magic'], ['divine', 4, 'Neutralize Poison'], ['divine', 4, 'Speak with Plants'],
+        ['divine', 5, 'Create Food'], ['divine', 5, 'Cure Critical Wounds'], ['divine', 5, 'Dispel Evil'], ['divine', 5, 'Insect Plague'],
+        ['divine', 6, 'Cureall'], ['divine', 6, 'Find the Path'], ['divine', 6, 'Speak with Monsters'], ['divine', 6, 'Word of Recall'],
+    ],
+    wicca: [
+        ['arcane', 1, 'Detect Magic'], ['arcane', 1, 'Light'], ['arcane', 1, 'Protection from Evil'], ['arcane', 1, 'Read Languages'], ['arcane', 1, 'Read Magic'], ['arcane', 1, 'Sleep'],
+        ['arcane', 2, 'Continual Light'], ['arcane', 2, 'Detect Evil'], ['arcane', 2, 'Detect Invisible'], ['arcane', 2, 'Invisibility'], ['arcane', 2, 'Levitate'], ['arcane', 2, 'Web'],
+        ['arcane', 3, 'Clairvoyance'], ['arcane', 3, 'Dispel Magic'], ['arcane', 3, 'Fireball'], ['arcane', 3, 'Fly'], ['arcane', 3, 'Lightning Bolt'], ['arcane', 3, 'Water Breathing'],
+        ['arcane', 4, 'Charm Monster'], ['arcane', 4, 'Growth of Plants'], ['arcane', 4, 'Ice Storm/Wall of Ice'], ['arcane', 4, 'Massmorph'], ['arcane', 4, 'Remove Curse'], ['arcane', 4, 'Wall of Fire'],
+        ['arcane', 5, 'Animate Dead'], ['arcane', 5, 'Cloudkill'], ['arcane', 5, 'Dissolve'], ['arcane', 5, 'Hold Monster'], ['arcane', 5, 'Passwall'], ['arcane', 5, 'Wall of Stone'],
+        ['arcane', 6, 'Death Spell'], ['arcane', 6, 'Move Earth'], ['arcane', 6, 'Projected Image'], ['arcane', 6, 'Reincarnation'], ['arcane', 6, 'Stone to Flesh'], ['arcane', 6, 'Wall of Iron'],
+    ],
+    tabi: [
+        ['arcane', 1, 'Charm Person'], ['arcane', 1, 'Detect Magic'], ['arcane', 1, 'Shield'], ['arcane', 1, 'Ventriloquism'],
+        ['arcane', 2, 'ESP'], ['arcane', 2, 'Invisibility'], ['arcane', 2, 'Mirror Image'], ['arcane', 2, 'Phantasmal Force'],
+        ['arcane', 3, 'Haste'], ['divine', 3, 'Locate Object'], ['arcane', 3, 'Protection from Normal Missiles'],
+        ['arcane', 4, 'Confusion'], ['arcane', 4, 'Dimension Door'], ['arcane', 4, 'Growth of Plants'], ['arcane', 4, 'Hallucinatory Terrain'],
+        ['arcane', 5, 'Passwall'], ['druid', 5, 'Pass Plant'],
+        ['arcane', 6, 'Projected Image'], ['druid', 6, 'Transport through Plants'],
+    ],
+};
+PC2_SPELL_LISTS.shaman_druid = PC2_SPELL_LISTS.shaman;     // pegataur shamans add every druid spell (below)
+function pc2NamedSpells(key) {
+    const rows = PC2_SPELL_LISTS[key] || [];
+    const all = Object.values(GlobalSpellsDatabase);
+    const out = [];
+    rows.forEach(([type, level, name]) => {
+        const k = spellNameKey(name);
+        const s = all.find(x => x.casterType === type && x.level === level && spellNameKey(x.name) === k)
+            || all.find(x => x.casterType === type && spellNameKey(x.name) === k);
+        if (s) out.push({ ...s, level });
+    });
+    if (key === 'shaman_druid') all.filter(s => s.casterType === 'druid').forEach(s => out.push(s));
+    return out;
+}
+
 // One definition of "spells this caster can prepare", shared by the spellbook
 // view and the preparation counter so the per-tier slot cap always matches.
 function getSpellsForProfile(profile, book, deity) {
     const b = book || {};
     const allCustom = Array.isArray(b.customSpells) ? b.customSpells : [];
     // A class option's own list (Shadow Shaman): only those spells, all known as a cleric knows hers.
+    // PC2 named lists (shaman, wicca, tabi), plus a sub-class's extra spells (faenare windsinger).
+    if (profile.spellNames) {
+        const list = pc2NamedSpells(profile.spellNames);
+        const have = new Set(list.map(s => s.id));
+        (profile.extraSpellTypes || []).forEach(t => Object.values(GlobalSpellsDatabase)
+            .filter(s => s.casterType === t && !have.has(s.id)).forEach(s => { have.add(s.id); list.push(s); }));
+        return list;
+    }
     if (profile.spellList === 'dryad') {
         // PC1: a dryad casts as a druid (cleric and druid spells) plus the two spells PC1 suggests.
         return Object.values(GlobalSpellsDatabase).filter(s => ['divine', 'druid', 'dryad'].includes(s.casterType));
@@ -264,9 +329,16 @@ function getCasterProfile(character) {
     if (ownClass && ownClass.casterType && Array.isArray(ownClass.spellProgression)) {
         // Creature heroes below 1st level use their stage's spells (a young hsiao), or none.
         const stage = (typeof getCreatureStage === 'function') ? getCreatureStage(character) : null;
-        const slots = stage ? (stage.spells || []).slice() : (ownClass.spellProgression[level] || []).slice();
+        // A sub-class may change the table (a faenare windsinger keeps rising after 12th level).
+        const opt = (typeof getClassOption === 'function') ? getClassOption(character) : null;
+        const prog = Array.isArray(opt?.mainSpellProgression) ? opt.mainSpellProgression : ownClass.spellProgression;
+        const slots = stage ? (stage.spells || []).slice() : (prog[level] || []).slice();
+        const extraSpellTypes = (ownClass.subClassSpells && character.subClass && ownClass.subClassSpells[character.subClass]) || null;
+        if (ownClass.spellNames) return { type: ownClass.casterType, effectiveLevel: stage ? (slots.length ? 1 : 0) : level, slots,
+            spellNames: ownClass.spellNames, spellList: 'named', extraSpellTypes, slotPools: ownClass.slotPools || null,
+            title: ownClass.spellNames === 'tabi' ? 'Tabi Spells' : (extraSpellTypes ? 'Windsinger Spells & Songs' : 'Shaman Spells') };
         // PC1 races cast from their own list: fairy spells (leprechaun, sprite, sidhe), druid spells (dryad).
-        return { type: ownClass.casterType, effectiveLevel: stage ? 0 : level, slots, spellList: ownClass.spellList || null, spellListChanges: ownClass.spellListChanges || null };
+        return { type: ownClass.casterType, effectiveLevel: stage ? (slots.length ? 1 : 0) : level, slots, spellList: ownClass.spellList || null, spellListChanges: ownClass.spellListChanges || null };
     }
 
     return { type: null, effectiveLevel: 0, slots: [] };
@@ -277,18 +349,19 @@ function getCasterProfile(character) {
 function getCasterProfiles(character) {
     const profiles = [];
     const main = getCasterProfile(character);
-    if (main.type) profiles.push({ ...main, key: 'main' });
     const option = (typeof getClassOption === 'function') ? getClassOption(character) : null;
+    // A pegataur wicca stops gaining elf spells (PC2 p. 24).
+    if (main.type && !option?.replacesMainSpells) profiles.push({ ...main, key: 'main' });
     if (option && option.casterType && Array.isArray(option.spellProgression)) {
         const level = option.ownXpTrack ? (Number(character.subClassLevel) || 1) : (Number(character.level) || 1);
         const xp = option.ownXpTrack ? (Number(character.subClassXP) || 0) : (Number(character.experiencePoints) || 0);
         const ready = !option.spellsFromXp || xp >= option.spellsFromXp;
         profiles.push({
-            key: 'option', type: option.casterType, spellList: option.spellList || null,
+            key: 'option', type: option.casterType, spellList: option.spellList || (option.spellNames ? 'named' : null), spellNames: option.spellNames || null,
             title: `${option.name} Spells` + (option.fixedDeity ? ` (${option.fixedDeity})` : ''),
             effectiveLevel: ready ? level : 0,
             slots: ready ? (option.spellProgression[level] || []).slice() : [],
-            notReadyNote: ready ? '' : `Shaman spells begin at ${option.spellsFromXp.toLocaleString()} shaman XP, after the Test of Rafiel.`,
+            notReadyNote: ready ? '' : (option.spellsNote || `Shaman spells begin at ${option.spellsFromXp.toLocaleString()} shaman XP, after the Test of Rafiel.`),
         });
     }
     return profiles;
@@ -489,7 +562,11 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
         const totalPreparedInTier = spellsOfLevel.reduce((sum, s) => sum + (prepMap[s.id] || 0), 0);
         const castInTier = spellsOfLevel.reduce((sum, s) => sum + Math.min(castMap[s.id] || 0, prepMap[s.id] || 0), 0);
         preparedTotal += totalPreparedInTier; castTotal += castInTier;
-        const isTierFull = combo ? levelsUsed + lvl > capacity : totalPreparedInTier >= slotCount;
+        // Tabi (PC2): spell levels 1-3 and 4-6 each share one pool of spells.
+        const pool = Array.isArray(profile.slotPools) ? profile.slotPools.find(([a, b]) => lvl >= a && lvl <= b) : null;
+        const poolPrepared = pool ? allSpells.filter(s => s.level >= pool[0] && s.level <= pool[1]).reduce((sum, s) => sum + (prepMap[s.id] || 0), 0) : 0;
+        const isTierFull = combo ? levelsUsed + lvl > capacity : pool ? poolPrepared >= slotCount : totalPreparedInTier >= slotCount;
+        const slotText = combo ? `Prepared ${totalPreparedInTier}` : pool ? `Levels ${pool[0]}-${pool[1]}: ${poolPrepared} / ${slotCount}` : `Slots: ${totalPreparedInTier} / ${slotCount}`;
 
         const spellsListHtml = spellsOfLevel.map(s => {
             const count = prepMap[s.id] || 0;
@@ -542,7 +619,7 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
             <div style="border: 1px solid ${isTierFull ? 'var(--accent-gold-dim)' : 'var(--border-color)'}; border-radius: 2px; padding: 10px; background: color-mix(in srgb, var(--text-main) 3%, transparent);">
                 <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
                     <span class="note-col-title">${['First','Second','Third','Fourth','Fifth','Sixth','Seventh','Eighth','Ninth'][lvl - 1] || lvl} Level</span>
-                    <span style="font-size: 0.75rem; color: ${isTierFull ? 'var(--good)' : 'var(--text-muted)'}; font-family: var(--font-ui);">${combo ? `Prepared ${totalPreparedInTier}` : `Slots: ${totalPreparedInTier} / ${slotCount}`}${totalPreparedInTier ? ` · ${totalPreparedInTier - castInTier} left` : ''}</span>
+                    <span style="font-size: 0.75rem; color: ${isTierFull ? 'var(--good)' : 'var(--text-muted)'}; font-family: var(--font-ui);">${slotText}${totalPreparedInTier ? ` · ${totalPreparedInTier - castInTier} left` : ''}</span>
                 </div>
                 ${spellsListHtml}
             </div>
@@ -674,6 +751,11 @@ function adjustPreparedSpell(spellId, tier, delta, maxSlots, profileKey = 'main'
                 .filter(s => s.level <= (profile.slots || []).length)
                 .reduce((sum, s) => sum + (prepMap[s.id] || 0) * s.level, 0);
             if (used + tier > capacity) return;
+        } else if (Array.isArray(profile.slotPools) && profile.slotPools.some(([a, b]) => tier >= a && tier <= b)) {
+            const [a, b] = profile.slotPools.find(([lo, hi]) => tier >= lo && tier <= hi);
+            const inPool = getSpellsForProfile(profile, book, currentCharacter.deity).filter(s => s.level >= a && s.level <= b)
+                .reduce((sum, s) => sum + (prepMap[s.id] || 0), 0);
+            if (inPool >= ((profile.slots || [])[a - 1] || 0)) return;
         } else if (currentTierPrepared >= maxSlots) return;
         prepMap[spellId] = currentCount + 1;
     } else if (delta < 0) {
@@ -801,6 +883,12 @@ function getThiefAbilities(character) {
         add('Remove Outdoor Traps', at('Remove Traps', lvl), 'Outdoors only; one try per trap');
         add('Cover Tracks', Math.min(100, 50 + 3 * (lvl - 1)), `Up to ${lvl} turn(s) per day`);
         add('Track (outdoors)', 75, '+2%/creature, -10%/day, -25%/hr rain');
+    } else if (ClassesDatabase[cls]?.thiefSkillTable) {
+        // PC2 tabi and gremlin: their own percentages by stage and level.
+        const tbl = ClassesDatabase[cls].thiefSkillTable;
+        const stage = (typeof getCreatureStage === 'function') ? getCreatureStage(character) : null;
+        const row = stage ? (stage.thiefSkills || []) : (tbl.levels[lvl] || []);
+        tbl.names.forEach((n, i) => add(n, row[i]));
     } else if (Array.isArray(ClassesDatabase[cls]?.thiefSkillsAs)) {
         // PC1: a rogue sidhe as a thief of its level; a woodrake by its own steps (and by stage while growing).
         const stage = (typeof getCreatureStage === 'function') ? getCreatureStage(character) : null;

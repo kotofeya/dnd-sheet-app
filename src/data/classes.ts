@@ -88,6 +88,14 @@ export interface ClassData {
         saveLevel?: number;
         /** Thief skills as a thief of this level (0 = none). */
         thiefLevel?: number;
+        /** Level table row at this stage (see levelStats). */
+        stats?: string[];
+        /** Thief skill percentages at this stage (see thiefSkillTable). */
+        thiefSkills?: number[];
+        /** Own saving throws at this stage. */
+        saves?: number[];
+        /** Bonus to every save at this stage. */
+        saveBonus?: number;
     }[];
     /** Own movement & encumbrance table (PC1 Table 18): walking speed per round-turn for up to `max` cn; more than the last row = immobile. */
     encumbranceTable?: readonly { max: number; speed: number }[];
@@ -107,6 +115,32 @@ export interface ClassData {
     thiefSkillsAs?: readonly number[];
     /** Changes to the class's spell list: move a spell (by name) to another level, or add a race-only spell (by id). */
     spellListChanges?: { name?: string; id?: string; level: number }[];
+    /** PC2: a first Hit Die roll below average counts as the average (5 on a d8). */
+    firstHitDieAverage?: boolean;
+    /** Natural AC by level (index = level), when it improves after 1st level. */
+    naturalArmourByLevel?: readonly number[];
+    /** A table of level-based values shown with the class abilities (gremlin aura, sphinx roar). */
+    levelStats?: { name: string; columns: string[]; levels: readonly (readonly string[])[] };
+    /** Thief-like skills with their own percentages by level (tabi, gremlin). */
+    thiefSkillTable?: { names: string[]; levels: readonly (readonly number[])[] };
+    /** Restricted spell list by name (PC2 shaman / wicca / tabi lists). */
+    spellNames?: string;
+    /** Extra spell types granted when the character takes a sub-class (faenare windsinger: druid spells and songs). */
+    subClassSpells?: Record<string, string[]>;
+    /** Sub-class: replaces the main class's spells-per-level table (windsinger past 12th level). */
+    mainSpellProgression?: number[][];
+    /** Sub-class: the main class no longer gains its own spells (pegataur wicca). */
+    replacesMainSpells?: boolean;
+    /** Sub-class: text shown before its spells begin. */
+    spellsNote?: string;
+    /** Bonus to every saving throw by level (nagpa). */
+    saveBonus?: readonly number[];
+    /** Own saving throws by level: [death, wands, paralysis, breath, spells] (pegataur). */
+    savesByLevel?: readonly (readonly number[])[];
+    /** Spell levels that share one pool of spells (tabi: levels 1-3 and 4-6). */
+    slotPools?: [number, number][];
+    /** Natural attacks by level (index = level). */
+    naturalAttacksByLevel?: readonly { count: number; note: string }[];
     /** Mystic-only level data (DD Table 4-8): natural AC, movement, strike-to-kill, thief-like abilities. */
     mysticTable?: {
         armourClass: readonly number[];
@@ -1463,3 +1497,374 @@ const PC1WoodlandClasses: Record<string, ClassData> = {
     },
 };
 Object.assign(ClassesDatabase, PC1WoodlandClasses);
+
+// ---------------------------------------------------------------------------
+// PC2 Top Ballista: the other skydwellers (faenare, gremlin, harpy, nagpa, pegataur,
+// sphinx, tabi) and the creature spellcasters (shamans and wiccas, pp. 31-32).
+// Until 8th level they fight and save as monsters of their Hit Dice; from 8th, by their
+// Hit Dice or their level (as a conventional hero), whichever is better (p. 5).
+// ---------------------------------------------------------------------------
+/** THAC0 by level: monster of its Hit Dice, from 8th level the better of that or a hero of `bab`. */
+const pc2Thac0 = (hd: [number, number][], bab: readonly number[]): number[] =>
+    hd.map(([d, p], lvl) => lvl === 0 ? 20 : (lvl >= 8 ? Math.min(monsterThac0(d, p), 20 - (bab[lvl] ?? 0)) : monsterThac0(d, p)));
+/** Save as a class of level = Hit Dice; from 8th level by Hit Dice or level, whichever is higher. */
+const pc2SaveLevels = (hd: [number, number][], mult = 1): number[] =>
+    hd.map(([d], lvl) => lvl === 0 ? 1 : Math.max(1, Math.min(36, lvl >= 8 ? Math.max(d * mult, lvl) : d * mult)));
+/** Standard encumbrance (RC p. 87) with carrying limits multiplied (PC2 p. 4). */
+const scaledEnc = (mult: number, base = 120, extra = 0) =>
+    [[400, 120], [800, 90], [1200, 60], [1600, 30], [2400, 15]].map(([max, sp]) => ({ max: Math.round(max! * mult) + extra, speed: Math.round(sp! * base / 120) }));
+/** Clerical (or magic-user) table capped at a maximum spellcaster level. */
+const capSpells = (table: number[][], max: number): number[][] => table.map((row, lvl) => (table[Math.min(lvl, max)] ?? row).slice());
+const PC2_PRIME_NOTE = "XP bonus: +5% if every prime requisite is 13+, +10% if they are and one is 16+";
+const firstDieNote = "PC2: a first Hit Die roll below average (5 on a d8) counts as 5";
+
+// Table 3: faenare. Spells as printed in the table (the 2nd-level row is read as 2/2).
+const FaenareXP = expandXp([0, 4000, 12000, 28000, 60000, 125000, 250000, 500000, 800000, 1100000], 300000);
+const FaenareHD = expandHitDice([[0, 0], [2, 0], [3, 0], [4, 0], [4, 0], [5, 0], [6, 0], [6, 0], [7, 0], [7, 2]], 2);
+const FaenareSpells = expandSpells([[2, 1], [2, 2], [2, 2, 1], [3, 2, 2], [3, 3, 2, 1], [3, 3, 2, 2], [4, 4, 3, 2, 1], [4, 4, 3, 3, 2], [4, 4, 4, 3, 2, 1]]);
+// Windsingers go past 12th level using the rulebook cleric table (p. 10).
+const WindsingerSpells = FaenareSpells.map((row, lvl) => lvl > 12 ? (ClericSpells[lvl] ?? row).slice() : row.slice());
+// Table 5: gremlin.
+const GremlinXP = expandXp([0, 3000, 9000, 21000, 45000, 95000, 190000, 380000, 680000, 980000], 300000);
+const GremlinHD = expandHitDice([[0, 0], [1, 1], [2, 1], [2, 2], [3, 2], [3, 3], [4, 3], [4, 4], [5, 4], [5, 6]], 2);
+const gremlinRow = (enemy: string, fumble: string, aura: string, save: string) => [enemy, fumble, aura, save];
+const GremlinStats = [[], gremlinRow("+2", "-3", "10'", "+2"), gremlinRow("+1", "-2", "12'", "+2"), gremlinRow("+1", "-2", "14'", "+2"),
+    gremlinRow("+1", "-2", "15'", "+3"), gremlinRow("0", "-1", "16'", "+3"), gremlinRow("0", "-1", "17'", "+3"), gremlinRow("0", "-1", "18'", "+3"),
+    gremlinRow("-1", "-1", "19'", "+3"), gremlinRow("-1", "0", "20'", "+4")];
+// Table 6: harpy.
+const HarpyXP = expandXp([0, 6000, 18000, 42000, 90000, 180000, 360000, 660000, 960000, 1260000], 300000);
+const HarpyHD = expandHitDice([[0, 0], [4, 0], [4, 0], [5, 0], [6, 0], [7, 0], [7, 0], [8, 0], [9, 0], [9, 2]], 2);
+// Table 7: nagpa (maximum Hit Dice at 7th level).
+const NagpaXP = expandXp([0, 300000, 600000, 900000, 1200000, 1500000, 1800000, 2100000, 2400000, 2700000], 300000);
+const NagpaHD = expandHitDice([[0, 0], [10, 0], [10, 0], [11, 0], [11, 0], [12, 0], [12, 0], [13, 0], [13, 0], [13, 2]], 2);
+const NagpaAC = NagpaHD.map((_, lvl) => lvl >= 9 ? 2 : lvl >= 4 ? 3 : 4);
+const NagpaSaveBonus = NagpaHD.map((_, lvl) => lvl >= 9 ? 4 : lvl >= 3 ? 3 : 2);
+// Table 8: pegataur, with its own saving throws (death, wands, paralysis, breath, spells).
+const PegataurXP = expandXp([0, 10000, 60000, 140000, 300000, 600000, 900000, 1200000, 1500000, 1800000], 300000);
+const PegataurHD = expandHitDice([[0, 0], [5, 0], [6, 0], [7, 0], [7, 0], [8, 0], [9, 0], [9, 0], [10, 0], [10, 2]], 2);
+const pegSaveRows: number[][] = [[], [10, 11, 12, 13, 14], [8, 9, 10, 11, 12], [8, 9, 10, 11, 11], [8, 9, 10, 11, 11], [6, 7, 8, 9, 10],
+    [4, 7, 7, 7, 7], [4, 7, 7, 7, 7], [4, 7, 7, 7, 7], [2, 4, 4, 4, 3]];
+const PegataurSaves = Array.from({ length: 37 }, (_, lvl) => lvl === 0 ? [] : pegSaveRows[Math.min(lvl, 9)]!.slice());
+// Table 9: sphinx.
+const SphinxXP = expandXp([0, 300000, 600000, 900000], 300000);
+const SphinxHD = expandHitDice([[0, 0], [13, 0], [14, 0], [14, 2]], 2);
+const roar = (z1: string, z2: string, z3: string, dmg: string, mod: string, stun: string, fear: string) => [`${z1} / ${z2} / ${z3}`, dmg, mod, stun, fear];
+const SphinxRoar = [[], roar("13'", "65'", "130'", "6d6", "-4", "1d6 rounds", "1d6 turns"), roar("14'", "70'", "140'", "7d6", "-4", "1d6 rounds", "1d6 turns"),
+    roar("15'", "75'", "150'", "7d6", "-4", "1d8 rounds", "1d8 turns")];
+// Table 10: tabi. Spells usable from levels 1-3 and 4-6 (any mix within each band).
+const TabiXP = expandXp([0, 32000, 100000, 300000, 600000, 900000, 1200000, 1500000, 1800000, 2100000], 300000);
+const TabiHD = expandHitDice([[0, 0], [5, 0], [6, 0], [6, 0], [7, 0], [7, 0], [8, 0], [8, 0], [9, 0], [9, 2]], 2);
+const tabiPools: [number, number][] = [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [4, 1], [4, 2], [4, 3], [4, 4]];
+const TabiSpells = Array.from({ length: 37 }, (_, lvl) => {
+    if (lvl === 0) return [];
+    const [a, b] = tabiPools[Math.min(lvl, 8)]!;
+    return b ? [a, a, a, b, b, b] : [a, a, a];
+});
+const tabiThief: number[][] = [[], [45, 50, 50], [50, 60, 60], [55, 70, 70], [60, 75, 75], [65, 80, 80], [70, 82, 82], [75, 84, 84], [80, 86, 86], [82, 88, 88]];
+const TabiThief = Array.from({ length: 37 }, (_, lvl) => lvl === 0 ? [] : (lvl <= 9 ? tabiThief[lvl]! : tabiThief[9]!.map(v => Math.min(100, v + 2 * (lvl - 9)))));
+const GremlinHide = Array.from({ length: 37 }, (_, lvl) => lvl === 0 ? [] : [Math.min(95, 35 + 5 * lvl)]);
+
+const featureList = (rows: [number, string, string][]): ClassFeature[] => rows.map(([minLevel, name, description]) => ({ minLevel, name, description }));
+
+const PC2SkydwellerClasses: Record<string, ClassData> = {
+    "Faenare": {
+        name: "Faenare", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: FaenareXP, saves: ElfSaves, saveLevels: pc2SaveLevels(FaenareHD),
+        thac0: pc2Thac0(FaenareHD, ElfAttackBonus), hitDiceTable: FaenareHD,
+        preStages: [
+            stage("Young Faenare", "Young", -4000, 1, { armourClass: 7, saveLevel: 1 }),
+            stage("Teen Faenare", "Teen", -2000, 1, { armourClass: 7, saveLevel: 1, spells: [1] }),
+            nmStage(2, { armourClass: 6, saveLevel: 2, spells: [2] }),
+        ],
+        naturalArmourClass: 6, naturalArmourByLevel: FaenareHD.map((_, lvl) => lvl >= 3 ? 5 : 6),
+        flyingTable: scaledEnc(1, 360, 100),
+        casterType: 'divine', spellProgression: FaenareSpells,
+        spellNames: 'shaman', subClassSpells: { Windsinger: ['druid', 'windsong'] },
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { intelligence: 5, wisdom: 7, dexterity: 6, charisma: 7 }, maxScores: { strength: 17 },
+        restrictions: ["Starts at -4,000 XP", "Wisdom 13+ to rise past normal monster", "12th level at most unless a windsinger", PC2_PRIME_NOTE],
+        armour: 'none', allowedShields: true,
+        allowedArmor: "No armour (if one insists: movement halved and Dexterity -2 for leather or chain, -4 for others); shields and protective magic are fine",
+        allowedWeapons: "Sling (+1 to hit), short bow, short sword, normal sword, dagger, knife, bola; huge or coarse weapons are avoided",
+        features: featureList([
+            [1, "Growing Up", "You start as a young faenare at -4,000 XP (1 Hit Die, AC 7), become a teen at -2,000 and a normal monster at 0 XP (2 Hit Dice, AC 6), and reach 1st level at 4,000 XP. AC 5 from 3rd level. Until 8th level you fight and save (as an elf) by your Hit Dice; from 8th, by Hit Dice or level, whichever is better."],
+            [1, "Flight", "Fly at 360' (120'). In flight you carry 100 cn more than normal before you slow down. Your winged hands can only grip small, light things in flight, but your feet can fight, use weapons and even fire bows."],
+            [1, "Bird Kin", "Immune to the charm of harpy song. No natural bird (eagles and rocs included) will attack you, even if magically controlled. Speak with birds at will, in birdsong."],
+            [1, "Alert", "Surprised only on a 1 in 12. +4 to saves against air-based spells and attacks."],
+            [1, "Shaman", "All faenare are shamans (no XP cost): you cast the shaman's clerical spells (RC p. 216) from Table 3, beginning as a teen. A windsinger (Wisdom 15+, a double Singing skill slot) also has druid spells and the windsongs."],
+            [1, "Protection from Lightning", "From the teen stage you are permanently protected from lightning, as the 4th-level druid spell."],
+            [1, "Group Bless", "From normal monster on, once a day five or more faenare singing together for a round can bless themselves (ends if any of them moves more than 100' from the others)."],
+            [1, "Morale", "9 alone, 11 with the clan, 12 in the nest."],
+            [1, "Languages", "Cloud Giant, Elven, Fairy, Giant Eagle, Harpy, Giant Roc and your alignment tongue; you can speak with birds."],
+            [7, "Summon Eagles", "Once a day, by a round of song, call 2-8 eagles or 1-4 giant eagles from within a mile. They help you (not suicidally) and expect a reward, usually food."],
+        ]),
+    },
+    "Windsinger": {
+        name: "Windsinger", source: PC2, optionOf: "Faenare", sharesMainLevel: true,
+        hitDie: 8, hpPerLevelAfter9: 2, xpTable: FaenareXP, saves: ElfSaves,
+        thac0: pc2Thac0(FaenareHD, ElfAttackBonus), mainSpellProgression: WindsingerSpells,
+        minScores: { wisdom: 15 },
+        restrictions: ["Needs a double skill slot in Singing", "Neutral"],
+        features: featureList([
+            [1, "Windsongs", "Songs are learned and memorised like spells and take a spell slot of their level; each takes two rounds to sing and is lost if you are interrupted. Songs of 6th level and below come automatically with your spellcaster level; 7th-level songs must be found at sacred places. You also have the druid spells."],
+            [1, "No Level Limit", "At 12th level an avatar of your Immortal awakens the songs within you: rituals to rise further fail only on a natural 20 Wisdom check (and then for good). Above 12th level, spells follow the rulebook cleric table."],
+            [17, "Mastersinger", "No more Wisdom checks to rise in level; Charisma 18 to other faenare. The 7th-level spells holy word, survival and travel become available."],
+        ]),
+    },
+    "Gremlin": {
+        name: "Gremlin", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: GremlinXP, saves: ElfSaves, saveLevels: pc2SaveLevels(GremlinHD),
+        thac0: pc2Thac0(GremlinHD, ElfAttackBonus), hitDiceTable: GremlinHD,
+        preStages: [
+            stage("Young Gremlin", "Young", -3000, 1, { saveLevel: 1, stats: gremlinRow("+3", "-4", "5'", "+1"), thiefSkills: [25] }),
+            nmStage(1, { saveLevel: 1, stats: gremlinRow("+2", "-3", "8'", "+1"), thiefSkills: [35] }),
+        ],
+        naturalArmourClass: 7,
+        encumbranceTable: scaledEnc(1 / 3),
+        levelStats: { name: "Aura & Defences", columns: ["Enemy saves", "Foe fumbles", "Aura radius", "Save vs. mind & illusion"], levels: GremlinStats },
+        thiefSkillTable: { names: ["Hide in Crannies"], levels: GremlinHide },
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { dexterity: 6 }, maxScores: { strength: 13, constitution: 16 },
+        restrictions: ["Starts at -3,000 XP", "Cannot become a shaman or wicca", "Strength is relative to its size; carries a third of normal", PC2_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None (no armour fits, and gremlins would rather take it apart)",
+        allowedWeapons: "Nothing bigger than a dagger (1-3 damage); only slings and tiny daggers as missiles",
+        features: featureList([
+            [1, "Growing Up", "You start as a young gremlin at -3,000 XP (1 Hit Die), become a normal monster at 0 XP and reach 1st level at 3,000 XP. Until 8th level you fight and save (as an elf) by your Hit Dice; from 8th, by Hit Dice or level, whichever is better."],
+            [1, "Chaotic Aura", "Murphy's Law: within your aura anything that can go wrong will (victims save vs. spells, with the Enemy Saves modifier). Pick an outcome and the DM sets the chance: easy 95%, simple 75%, tricky 50%, difficult 30%, very difficult 10% (+5% per helping gremlin, up to +20%). One round per try, one try per task. A foe who misses you rolls again against himself, adding the Foe Fumbles modifier. Spells cast at you within the aura need a save or they rebound on the caster (or help the gremlins)."],
+            [1, "Hide in Crannies", "Hide in nooks, crannies and behind machinery like a thief hiding in shadows; at half that chance you are effectively invisible to anyone not looking your way. +5% a level after 9th, to 95%."],
+            [1, "Tumbling and Jumping", "Ignore the first 10' of any fall. Leap 8' (12' with a 10' run) and 5' up (7' with a run)."],
+            [1, "Resistant Mind", "The 'Save vs. mind & illusion' bonus applies to saves against mind control (charm, feeblemind, magic jar...) and illusions."],
+            [1, "Magic Trouble", "Magic items fail or misbehave for you: a 10% chance per level (10% at least, and always at least a 10% chance they work). Check again each level; items work again 2d4 days after you drop them. Permanent items without charges (weapons, armour, rings, cloaks, boots) are not affected."],
+            [1, "Languages", "Fairy, Gnome, Leprechaun, the local language and your alignment tongue."],
+            [1, "Bigger Tumbles", "From 1st level you ignore the first 20' of a fall."],
+            [2, "Bigger Jumps", "Leap 12' (15' with a run) and 6' up (9' with a run)."],
+            [3, "Leg Whip", "Twice a day: range twice your aura radius, one creature saves vs. spells (big strong ones at +2) or its legs are bound for 2d4 rounds; it can only hop at 1/5 speed, and if it was running it must make a Dexterity check or fall (1-3 damage)."],
+            [6, "Side-Splitter", "Twice a day: one creature within your aura that can see you saves vs. spells at -2 or drops what it holds and falls over laughing; a new save each round, then a round to recover and another to pick things up. No spellcasting until recovered."],
+            [9, "Confusion", "Once a day, as the 4th-level magic-user spell."],
+        ]),
+    },
+    "Harpy": {
+        name: "Harpy", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: HarpyXP, saves: FighterSaves, saveLevels: pc2SaveLevels(HarpyHD),
+        thac0: pc2Thac0(HarpyHD, FighterAttackBonus), hitDiceTable: HarpyHD,
+        preStages: [
+            stage("Young Harpy", "Young", -6000, 1, { saveLevel: 1, attacks: { count: 2, note: "claws 1-2/1-2, or a weapon in the talons" } }),
+            stage("Teen Harpy", "Teen", -3000, 2, { saveLevel: 2, attacks: { count: 2, note: "claws 1-3/1-3, or a weapon in the talons" } }),
+            nmStage(3, { saveLevel: 3 }),
+        ],
+        naturalArmourClass: 7,
+        naturalAttacks: { count: 2, note: "claws 1-4/1-4, or a weapon in the talons (club 1-6); bite 1-6 only at helpless foes" },
+        flyingTable: scaledEnc(1, 150),
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        maxScores: { intelligence: 16 },
+        restrictions: ["Starts at -6,000 XP", PC2_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None (protective magic items are fine)",
+        allowedWeapons: "Melee weapons held in the talons; no missile weapons",
+        features: featureList([
+            [1, "Growing Up", "You start as a young harpy at -6,000 XP (1 Hit Die), become a teen at -3,000 (2 HD) and a normal monster at 0 XP (3 HD), and reach 1st level at 6,000 XP. Until 8th level you fight and save (as a fighter) by your Hit Dice; from 8th, by Hit Dice or level, whichever is better."],
+            [1, "Flight", "Fly at 150' (50'). Flying time each day: a third of your Constitution in hours with 1 HD, half with 2 HD, your Constitution with 3+ HD (14 hours at most)."],
+            [1, "Charming Song", "Charm person by song at will; victims save at +2 while you are young, +1 as a teen and normally from normal monster on. You can hold only one charmed victim at a time: a new charm frees the old one."],
+            [1, "Claws", "Claws 1-2/1-2 while young, 1-3/1-3 as a teen, 1-4/1-4 from normal monster on; or a weapon held in the talons. You may bite helpless foes for 1-6 (not with other attacks)."],
+            [1, "Languages", "Giant Eagle and your alignment tongue; 30% chance of the local language and 30% of Faenare."],
+            [2, "Charming Touch", "Once a day, charm person by touch (a hit roll, no damage; save at -2). It lasts longer than song charm (one extra week between checks) and counts as two levels higher against dispel magic."],
+            [4, "Charming Touch (3/day)", "Charm person by touch three times a day."],
+            [5, "Charm Monster", "Once a day, charm monster by touch (hit roll; save at -2)."],
+            [7, "Charm Monster (3/day)", "Charm monster by touch three times a day."],
+        ]),
+    },
+    "Nagpa": {
+        name: "Nagpa", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: NagpaXP, saves: MageSaves, saveLevels: pc2SaveLevels(NagpaHD), saveBonus: NagpaSaveBonus,
+        thac0: pc2Thac0(NagpaHD, MageAttackBonus), hitDiceTable: NagpaHD,
+        preStages: [
+            stage("Young Nagpa", "Young", -1100000, 2, { armourClass: 7, saveLevel: 2, saveBonus: 0 }),
+            stage("Nagpa (4 HD)", "Young", -1000000, 4, { armourClass: 7, saveLevel: 4, saveBonus: 1 }),
+            stage("Nagpa (6 HD)", "Young", -800000, 6, { armourClass: 6, saveLevel: 6, saveBonus: 1 }),
+            stage("Nagpa (7 HD)", "Young", -600000, 7, { armourClass: 6, saveLevel: 7, saveBonus: 1 }),
+            stage("Nagpa (8 HD)", "Young", -300000, 8, { armourClass: 5, saveLevel: 8, saveBonus: 1 }),
+            nmStage(9, { armourClass: 4, saveLevel: 9, saveBonus: 2 }),
+        ],
+        naturalArmourClass: 4, naturalArmourByLevel: NagpaAC,
+        weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
+        minScores: { intelligence: 9, wisdom: 7 }, maxScores: { strength: 16, dexterity: 16, constitution: 17, charisma: 16 },
+        restrictions: ["Starts at -1,100,000 XP", "Cannot become a shaman or wicca", "Usually Chaotic", PC2_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "No armour or shields (protective magic such as a cloak of protection is fine)",
+        allowedWeapons: "Small one-handed weapons (short sword...), staff, crossbows, sling; bows at -2 to hit",
+        features: featureList([
+            [1, "Growing Up", "You start at -1,100,000 XP (2 Hit Dice, AC 7) and grow through -1,000,000, -800,000, -600,000 and -300,000 to a normal monster at 0 XP (9 HD, AC 4); 1st level comes at 300,000 XP. AC 3 from 4th level, AC 2 at 9th. Until 8th level you fight and save (as a magic-user) by your Hit Dice; from 8th, by Hit Dice or level. Your magical nature adds the bonus shown to every saving throw."],
+            [1, "Darkness, Paralysis, Create Flames", "Each once a day from the start: darkness (reversed light); paralysis (every Lawful creature within 10' saves vs. spells or is paralysed 1d4 rounds); create flames (an object within 60' burns 1-3 rounds; if carried, 2d6 a round, save for half). Three times a day each from -1,000,000 (darkness), -800,000 (paralysis) and -600,000 XP (create flames)."],
+            [1, "Phantasmal Force", "From -600,000 XP, three times a day, as the 2nd-level spell."],
+            [1, "Corruption", "From -300,000 XP, three times a day (Chaotic nagpa only): one non-living object within 60' (a yard cube at most) rots to uselessness; magic items save vs. spells at their owner's level."],
+            [1, "Kariwa", "Spend half an hour each afternoon in reverie. Miss it and at dawn save vs. spells or sleep 1d4 hours; each further day without it, the save is 2 worse and the sleep an hour longer, with a 5% (cumulative) daily chance of some insanity."],
+            [1, "Scholar", "Start with six skills, at least three of them Knowledge skills; gain a Knowledge skill and may learn a new language (preferably arcane) each level above normal monster."],
+            [1, "Hideous", "Other races react badly to your looks whatever your Charisma; it takes time to overcome first impressions."],
+            [1, "Languages", "The local language, your alignment tongue and arcane languages."],
+            [2, "Polymorph Self", "Once a day, for an hour per level, into a humanoid (human, elf, dwarf, halfling, orc...)."],
+            [4, "Anti-Magic", "5% anti-magic (yourself only): 10% at 6th, 15% at 7th, 20% at 8th level."],
+            [5, "Animate Dead", "Once a day, one skeleton or zombie per level; you can control no more than that at once."],
+            [9, "Homunculus or Tabi", "Summon a homunculus or tabi servant, once you find the rare summoning ritual and components. If it dies you lose 1d4+1 hp for good."],
+        ]),
+    },
+    "Pegataur": {
+        name: "Pegataur", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: PegataurXP, saves: FighterSaves, savesByLevel: PegataurSaves,
+        thac0: pc2Thac0(PegataurHD, FighterAttackBonus), hitDiceTable: PegataurHD,
+        preStages: [
+            stage("Foal", "Young", -20000, 2, { saves: [12, 13, 13, 15, 15] }),
+            stage("Yearling", "Young", -15000, 3, { saves: [12, 13, 13, 15, 15] }),
+            stage("Young Pegataur", "Young", -10000, 4, { saves: [12, 13, 13, 15, 15] }),
+            nmStage(5, { saves: [10, 11, 12, 13, 14] }),
+        ],
+        naturalArmourClass: 6,
+        encumbranceTable: scaledEnc(2),
+        flyingTable: scaledEnc(2, 360),
+        casterType: 'arcane', spellProgression: MageSpells,
+        smashParryLevel: 10, multipleAttacks: [[10, 2], [17, 3]],
+        weaponFeatsProgression: { start: 4, gainLevels: martialFeatLevels },
+        minScores: { strength: 9, constitution: 8 },
+        restrictions: ["Starts at -20,000 XP", "Strength is relative to its size; carries twice normal", PC2_PRIME_NOTE],
+        armour: 'any', allowedShields: true,
+        allowedArmor: "Pegataur barding (and large shields over the forequarters with a one-handed weapon)",
+        allowedWeapons: "Any weapons (lance, long bow, two-handed sword and mace favoured; basic mastery in these at the start)",
+        features: featureList([
+            [1, "Growing Up", "You start at -20,000 XP (2 Hit Dice) and grow through -15,000 and -10,000 to a normal monster at 0 XP (5 HD); 1st level comes at 10,000 XP. You save with Table 8 and fight as a monster of your Hit Dice until 8th level, then by Hit Dice or as a fighter of your level."],
+            [1, "Flight", "Fly at 360' (120')."],
+            [1, "Elf Spells", "Unless you become a wicca, you gain magic-user spells as an elf of your level, from 1st level."],
+            [1, "Barding", "AC 6 is your natural AC: barding helps only if better. Barding by an expert armourer counts as 2 better (non-magical)."],
+            [1, "Jousting", "Pegataur jousts: each rolls 1d10 + Strength and Dexterity bonuses + Hit Dice (15 at most); highest wins."],
+            [1, "Languages", "Centaur, Giant Eagle, Pegasus, Giant Roc and your alignment tongue; 50% chance each of Fairy and Elven."],
+            [10, "Attack Ranks", "From 10th level you climb the elf attack ranks (rank C at 10th, D at 11th...), gaining fighter combat options and elven special defences."],
+        ]),
+    },
+    "Sphinx (Female)": {
+        name: "Sphinx (Female)", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: SphinxXP, saves: FighterSaves, saveLevels: SphinxHD.map(([d], lvl) => lvl === 0 ? 1 : Math.min(36, 2 * d)),
+        thac0: pc2Thac0(SphinxHD, FighterAttackBonus), hitDiceTable: SphinxHD,
+        preStages: [],
+        naturalArmourClass: 0, naturalArmourByLevel: SphinxHD.map((_, lvl) => lvl >= 2 ? -1 : 0),
+        naturalAttacks: { count: 3, note: "claw/claw/bite 3d6/3d6/2d10" },
+        encumbranceTable: scaledEnc(3),
+        flyingTable: scaledEnc(3, 360),
+        levelStats: { name: "Roar (twice a day)", columns: ["Radius Z1 / Z2 / Z3", "Damage (Z1)", "Save mod.", "Stun (Z1-Z2)", "Fear (Z1-Z3)"], levels: SphinxRoar },
+        casterType: 'divine', spellProgression: capSpells(ClericSpells, 12),
+        minScores: { strength: 6, intelligence: 6, wisdom: 8, constitution: 8 },
+        restrictions: ["Starts at -3,000,000 XP", "Strength is relative to its size; carries three times normal", PC2_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None (barding only if the DM allows, at 100 times the cost)",
+        allowedWeapons: "None: claws and bite",
+        features: [],
+    },
+    "Tabi": {
+        name: "Tabi", source: PC2, hitDie: 8, hpPerLevelAfter9: 2, firstHitDieAverage: true,
+        xpTable: TabiXP, saves: MageSaves, saveLevels: pc2SaveLevels(TabiHD),
+        thac0: pc2Thac0(TabiHD, MageAttackBonus), hitDiceTable: TabiHD,
+        preStages: [
+            stage("Young Tabi", "Young", -32000, 2, { saveLevel: 2, thiefSkills: [25, 15, 15] }),
+            stage("Tabi (3 HD)", "Young", -24000, 3, { saveLevel: 3, thiefSkills: [30, 20, 20] }),
+            stage("Tabi (4 HD)", "Young", -16000, 4, { saveLevel: 4, thiefSkills: [35, 30, 30] }),
+            nmStage(5, { saveLevel: 5, thiefSkills: [40, 40, 40] }),
+        ],
+        naturalArmourClass: 7,
+        naturalAttacks: { count: 2, note: "claws 1-4/1-4 + venom (save vs. poison or attack the nearest creature for 2d6 turns)" },
+        encumbranceTable: scaledEnc(1 / 3),
+        flyingTable: scaledEnc(1 / 3, 240),
+        thiefSkillTable: { names: ["Pick Pockets", "Move Silently", "Hide in Shadows"], levels: TabiThief },
+        casterType: 'arcane', spellProgression: TabiSpells, slotPools: [[1, 3], [4, 6]],
+        spellNames: 'tabi',
+        minScores: { intelligence: 6, dexterity: 6 }, maxScores: { strength: 17, wisdom: 16 },
+        restrictions: ["Starts at -32,000 XP", "Cannot become a shaman or wicca", "Strength is relative to its size; carries a third of normal", PC2_PRIME_NOTE],
+        armour: 'none', allowedShields: false,
+        allowedArmor: "None (protective magic that fits, such as rings, is fine)",
+        allowedWeapons: "None: venomous claws",
+        features: featureList([
+            [1, "Growing Up", "You start at -32,000 XP (2 Hit Dice) and grow through -24,000 and -16,000 to a normal monster at 0 XP (5 HD); 1st level comes at 32,000 XP. Until 8th level you fight and save (as a magic-user) by your Hit Dice; from 8th, by Hit Dice or level."],
+            [1, "Flight", "Fly at 240' (80')."],
+            [1, "Venomous Claws", "Claws 1-4/1-4; a creature struck saves vs. poison or believes everyone around is hostile and attacks the nearest, for 2d6 turns or until neutralize poison (no spells or wands meanwhile). Like a sphinx, you can hit creatures that need magic weapons: +1 at 4-7 HD, +2 at 8-11 HD..."],
+            [1, "Thief Skills", "Pick pockets, move silently and hide in shadows (also in familiar jungle or woodland). A tabi's smell makes them much harder."],
+            [1, "Rotting Smell", "At will, a 100' radius stench that spreads and fades at 10' a round."],
+            [1, "Tabi Spells", "From 1st level, a number of spells you may choose from levels 1-3, and from 5th level from levels 4-6, from the tabi list. You need a spellbook to learn them but not to re-memorise them. At most 4 + 4 (8th level)."],
+            [1, "Languages", "Gnome, Phanaton, the local language and your alignment tongue."],
+            [1, "Speak with Apes", "From normal monster on, speak with any natural ape or monkey."],
+            [1, "Brave", "+1 to saves against fear from 1st level; +2 at 4th, +3 at 5th, +4 at 7th."],
+            [3, "Rotting Blight", "Your rotting smell acts as a blight spell on all non-tabi in its radius (undead, nagpa and creatures without a sense of smell are immune)."],
+            [3, "Knowledge Skills", "A Knowledge skill (usually historical) every two levels above 1st."],
+            [8, "Lore", "Once a week, the 7th-level magic-user spell lore, on whatever intrigues you."],
+        ]),
+    },
+};
+// Sphinx (Male) is the female's twin with magic-user spells.
+const sphinxFeatures = (female: boolean): ClassFeature[] => featureList([
+    [1, "Growing Up", "You start at -3,000,000 XP (2 Hit Dice, AC 5) and grow through ten stages, gaining a Hit Die each 300,000 XP, to a normal monster at 0 XP (12 HD, AC 0); 1st level comes at 300,000 XP (13 HD), AC -1 from 2nd. You save as a fighter of twice your Hit Dice and fight as a monster of your Hit Dice."],
+    [1, "Claws and Bite", "Claw/claw/bite growing from 1d2/1d2/1d6 to 3d6/3d6/2d8 at normal monster, 2d10 bite at 1st and 2d12 at 3rd. For each 4 HD you can hit creatures needing one more 'plus' of magic weapon (+1 at 4-7 HD, +2 at 8-11...)."],
+    [1, "Flight", "Fly at 360' (120')."],
+    [1, "Roar", "Twice a day. Everyone in range is affected, friends too. Zone 3: save vs. spells or flee in fear. Zone 2: also save vs. paralysis or be stunned. Zone 1: also deafened 1d10 turns (save for 1d4) and roar damage, with no save. The save modifier applies to all these saves. Your current figures are in the Roar card."],
+    [1, "Speak with Animals", "From -2,400,000 XP, at will with desert creatures or those within three miles of your home."],
+    [1, "Spell Resistance", "+4 to saves against 1st-level spells from -1,800,000 XP, against 2nd-level from -1,200,000 and 3rd-level from normal monster on. (Optional full immunity costs 100,000 / 150,000 / 200,000 XP more.) It works on helpful spells too."],
+    [1, "Magic Hide", "From -600,000 XP only magic weapons, or monsters of 4+ HD, can harm you."],
+    [1, female ? "Cleric Spells" : "Magic-User Spells", `From 1st level you cast ${female ? "the full clerical list" : "any magic-user spell"} as a ${female ? "cleric" : "magic-user"} of your level, up to 12th-level ability, with no ritual or study needed. You may use magic items for ${female ? "clerics" : "magic-users"} that you can physically use.`],
+    [1, "Riddles", "Obsessed with riddles and puzzles; many sphinxes collect rare and obscure things."],
+    [1, "Languages", "The local language, 1d3 languages of neighbouring countries and your alignment tongue."],
+]);
+const sphinxStages = (): Stage[] => {
+    const dmg = ["1d2/1d2/1d6", "1d4/1d4/1d8", "1d4/1d4/1d8", "1d6/1d6/1d8", "1d6/1d6/1d8", "2d6/2d6/1d8", "2d6/2d6/1d8", "3d6/3d6/1d8", "3d6/3d6/1d8", "3d6/3d6/2d8"];
+    const ac = [5, 5, 4, 4, 3, 3, 2, 2, 1, 1];
+    const roars = [roar("2'", "10'", "20'", "1d6", "0", "1 round", "1d4 rounds"), roar("3'", "15'", "30'", "2d6", "-1", "1 round", "1d6 rounds"),
+        roar("4'", "20'", "40'", "2d6", "-1", "1 round", "1d8 rounds"), roar("—", "25'", "50'", "3d6", "-1", "1d2 rounds", "1d10 rounds"),
+        roar("5'", "30'", "60'", "3d6", "-2", "1d2 rounds", "2d10 rounds"), roar("6'", "35'", "70'", "3d6", "-2", "1d3 rounds", "3d10 rounds"),
+        roar("8'", "40'", "80'", "4d6", "-2", "1d3 rounds", "1d3 turns"), roar("9'", "45'", "90'", "4d6", "-3", "1d4 rounds", "1d3 turns"),
+        roar("10'", "50'", "100'", "5d6", "-3", "1d4 rounds", "1d4 turns"), roar("11'", "55'", "110'", "5d6", "-3", "1d4 rounds", "1d4 turns")];
+    const out: Stage[] = dmg.map((d, i) => stage(i === 0 ? "Sphinx Cub" : `Young Sphinx (${i + 2} HD)`, "Young", -3000000 + 300000 * i, i + 2,
+        { armourClass: ac[i] ?? 5, saveLevel: 2 * (i + 2), attacks: { count: 3, note: `claw/claw/bite ${d}` }, stats: roars[i] ?? [] }));
+    out.push(nmStage(12, { armourClass: 0, saveLevel: 24, attacks: { count: 3, note: "claw/claw/bite 3d6/3d6/2d8" }, stats: roar("12'", "60'", "120'", "6d6", "-4", "1d6 rounds", "1d6 turns") }));
+    return out;
+};
+const sphinxF = PC2SkydwellerClasses["Sphinx (Female)"]!;
+sphinxF.preStages = sphinxStages();
+sphinxF.features = sphinxFeatures(true);
+sphinxF.naturalAttacksByLevel = SphinxHD.map((_, lvl) => ({ count: 3, note: `claw/claw/bite 3d6/3d6/${lvl >= 3 ? "2d12" : "2d10"}` }));
+PC2SkydwellerClasses["Sphinx (Male)"] = { ...sphinxF, name: "Sphinx (Male)", casterType: 'arcane', spellProgression: capSpells(MageSpells, 12), features: sphinxFeatures(false) };
+
+// Creature spellcasters (pp. 31-32): shamans (restricted clerical list; pegataurs also druid
+// spells) and wiccas (restricted magic-user list), with their own XP track on top of the race's.
+const CreatureCasterXP = expandXp([0, 0, 2000, 4000, 8000, 16000, 32000, 64000, 130000, 260000, 460000], 200000);
+const creatureCaster = (race: string, kind: 'Shaman' | 'Wicca', max: number, min: number, extra: Partial<ClassData> = {}): ClassData => {
+    const base = ClassesDatabase[race] ?? PC2SkydwellerClasses[race]!;
+    const shaman = kind === 'Shaman';
+    return {
+        name: `${race} ${kind}`, source: PC2 + " (pp. 31-32)", optionOf: race, ownXpTrack: true,
+        hitDie: base.hitDie, hpPerLevelAfter9: base.hpPerLevelAfter9 ?? 2, thac0: base.thac0, saves: base.saves,
+        xpTable: CreatureCasterXP, spellsFromXp: 1000,
+        spellsNote: `${kind} spells begin after the initiation ritual, at 1,000 ${kind.toLowerCase()} XP (${shaman ? 'a Wisdom' : 'an Intelligence'} check, -2 with a tutor; three failures and you can never become a spellcaster).`,
+        casterType: shaman ? 'divine' : 'arcane', spellProgression: capSpells(shaman ? ClericSpells : MageSpells, max),
+        spellNames: shaman ? 'shaman' : 'wicca',
+        minScores: shaman ? { wisdom: min } : { intelligence: min },
+        restrictions: [`${max}th spellcaster level at most`, "A shaman cannot also be a wicca"],
+        features: featureList([
+            [1, `${race} ${kind}`, `Your ${kind.toLowerCase()} level has its own XP bar (Table 12: 1,000 XP for 1st, 2,000 for 2nd, 4,000 for 3rd... then +200,000 a level): to rise, earn the next race level's XP and the next ${kind.toLowerCase()} level's XP. ${shaman ? 'A 1st-level shaman has no spells yet (still on trial).' : ''} Maximum level ${max}; going beyond needs a daunting ritual and a check at +2, failure costing the XP.`],
+            [1, "Spell List", shaman ? "Shamans pray for a restricted clerical list (RC p. 216) and cannot turn undead; they may use any clerical magic item." : "Wiccas learn a restricted magic-user list (RC p. 216) from spellbooks; they may use any magic-user item."],
+            [1, "Optional Saves", `You may use the saving throws of a ${shaman ? 'cleric' : 'magic-user'} of your ${kind.toLowerCase()} level where they are better, category by category.`],
+            [1, "More Spells", "Other rulebook spells can be learned by a day's ritual or study per spell level and 1,000 gp per spell level: chance ((Wisdom + spellcaster level) x 2) - (3 x spell level)%; new spells take twice as long and cost twice as much, with 5 x spell level."],
+        ]),
+        ...extra,
+    };
+};
+Object.assign(ClassesDatabase, PC2SkydwellerClasses);
+const PC2CasterOptions: ClassData[] = [
+    creatureCaster("Gnome", "Shaman", 12, 14), creatureCaster("Gnome", "Wicca", 12, 13),
+    creatureCaster("Skygnome", "Shaman", 12, 14), creatureCaster("Skygnome", "Wicca", 12, 13),
+    creatureCaster("Harpy", "Shaman", 6, 15), creatureCaster("Harpy", "Wicca", 4, 15),
+    creatureCaster("Pegataur", "Shaman", 8, 15, { spellNames: 'shaman_druid' }),
+    creatureCaster("Pegataur", "Wicca", 8, 15, { replacesMainSpells: true }),
+];
+PC2CasterOptions.forEach(o => { ClassesDatabase[o.name] = o; });
+// Gnomes and skygnomes (above) are PC2 creatures too: the first Hit Die rule and the spellcaster options.
+["Gnome", "Skygnome"].forEach(n => {
+    const g = ClassesDatabase[n];
+    if (!g) return;
+    g.firstHitDieAverage = true;
+    g.restrictions = (g.restrictions || []).filter(r => !/^Shaman or wicca/.test(r))
+        .concat(["Shaman (Wisdom 14+) or wicca (Intelligence 13+) up to 12th level: choose it as the sub-class"]);
+});

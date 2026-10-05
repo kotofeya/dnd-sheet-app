@@ -274,15 +274,18 @@ function addWeaponFromCatalogue(weaponId) {
 function renderArmourTab() {
     return DD_ARMOUR.filter(a => catalogueMatches(a.name + ' ' + a.desc)).map(a => {
         const isCentaur = currentCharacter && currentCharacter.characterClass === 'Centaur';
+        const isPegataur = currentCharacter && currentCharacter.characterClass === 'Pegataur';
         const allowed = a.isShield ? (typeof getArmourRule === 'function' ? getArmourRule(currentCharacter).shields : true)
             : a.centaurOnly ? isCentaur
+            : a.pegataurOnly ? isPegataur
             : isCentaur ? false                                   // PC1: a centaur needs barding made for it
+            : isPegataur ? false                                  // PC2: so does a pegataur
             : (typeof isArmourAllowed === 'function' ? isArmourAllowed(currentCharacter, a.baseAC) : true);
         return catRow({
             id: a.id, name: a.name,
             meta: `${a.isShield ? 'AC -1' : `AC ${a.baseAC}`} · ${fmtWeight(a.weight)} · ${fmtCost(a.cost)}`,
             tagHtml: allowed ? '' : '<span class="tag" style="color: var(--danger);">Not for your class</span>',
-            desc: `${escapeHtml(a.desc)}<div class="arc-source">${escapeHtml(a.source)}${a.centaurOnly ? '' : ', Table 8-3'}</div>`,
+            desc: `${escapeHtml(a.desc)}<div class="arc-source">${escapeHtml(a.source)}${a.centaurOnly || a.pegataurOnly ? '' : ', Table 8-3'}</div>`,
             actions: `<button type="button" class="btn btn-sm" onclick="addArmourFromCatalogue('${a.id}')">Add</button><button type="button" class="btn btn-sm" onclick="catalogueEquip('armour', '${a.id}')">Equip</button><button type="button" class="btn btn-sm" onclick="openForgeFor('${a.isShield ? 'shield' : 'armour'}', '${a.id}')">Enchant</button>`,
         });
     }).join('');
@@ -290,7 +293,7 @@ function renderArmourTab() {
 function armourItem(a) {
     return a.isShield
         ? { catalogId: a.id, name: a.name, category: 'equipment', isShield: true, slot: 'offHand', weight: a.weight, cost: a.cost, desc: a.desc }
-        : { catalogId: a.id, name: a.name, category: 'equipment', isArmor: true, baseAC: a.baseAC, slot: 'armor', weight: a.weight, cost: a.cost, desc: a.desc, ...(a.centaurOnly ? { centaurOnly: true } : {}) };
+        : { catalogId: a.id, name: a.name, category: 'equipment', isArmor: true, baseAC: a.baseAC, slot: 'armor', weight: a.weight, cost: a.cost, desc: a.desc, ...(a.centaurOnly ? { centaurOnly: true } : {}), ...(a.pegataurOnly ? { pegataurOnly: true } : {}) };
 }
 function addArmourFromCatalogue(id) {
     const a = DD_ARMOUR.find(x => x.id === id); if (!a) return;

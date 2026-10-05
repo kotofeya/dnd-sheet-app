@@ -124,6 +124,25 @@ const PRIME_REQUISITES = {
     'Treant':         { single: 'constitution' },
     'Wood Imp':       { single: 'dexterity' },
     'Woodrake':       { all: ['intelligence', 'dexterity'] },
+    // PC2 skydwellers (p. 4): +5% if every prime requisite is 13+, +10% if they are and one is 16+.
+    // A shaman or wicca adds Wisdom or Intelligence to the race's prime requisites.
+    'Faenare':        { allAny: ['wisdom', 'charisma'] },
+    'Windsinger':     { allAny: ['wisdom', 'charisma'] },
+    'Gremlin':        { single: 'dexterity' },
+    'Harpy':          { single: 'strength' },
+    'Nagpa':          { allAny: ['intelligence', 'wisdom'] },
+    'Pegataur':       { allAny: ['strength', 'constitution'] },
+    'Sphinx (Female)': { allAny: ['wisdom', 'constitution'] },
+    'Sphinx (Male)':  { allAny: ['wisdom', 'constitution'] },
+    'Tabi':           { single: 'intelligence' },
+    'Gnome Shaman':   { allAny: ['dexterity', 'wisdom'] },
+    'Gnome Wicca':    { allAny: ['dexterity', 'intelligence'] },
+    'Skygnome Shaman': { allAny: ['dexterity', 'wisdom'] },
+    'Skygnome Wicca': { allAny: ['dexterity', 'intelligence'] },
+    'Harpy Shaman':   { allAny: ['strength', 'wisdom'] },
+    'Harpy Wicca':    { allAny: ['strength', 'intelligence'] },
+    'Pegataur Shaman': { allAny: ['strength', 'constitution', 'wisdom'] },
+    'Pegataur Wicca': { allAny: ['strength', 'constitution', 'intelligence'] },
 };
 
 function getPrimeRequisiteBonus(className, stats) {
@@ -135,6 +154,12 @@ function getPrimeRequisiteBonus(className, stats) {
         const [[key16], [key13]] = rule.both;
         if (score(key16) >= 13 && score(key13) >= 13) return score(key16) >= 16 ? 10 : 5;
         return 0;
+    }
+
+    if (rule.allAny) {
+        const vals = rule.allAny.map(score);
+        if (Math.min(...vals) < 13) return 0;
+        return Math.max(...vals) >= 16 ? 10 : 5;
     }
 
     if (rule.all) {

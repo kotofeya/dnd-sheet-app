@@ -380,6 +380,32 @@ button:has(> .ui-icon) { display: inline-flex; align-items: center; justify-cont
 .note-col-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .note-col-title { font-family: var(--font-headings); font-weight: 700; color: var(--accent-gold); font-size: 1rem; }
 .note-col-body { font-size: 1rem; line-height: 1.4; }
+/* Daily uses and supplies (js/everyday.js) */
+.du-row, .sup-row, .light-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dotted var(--border-color); }
+.du-row:last-child, .sup-row:last-child { border-bottom: none; }
+.du-name, .sup-name { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 1px; }
+.sup-name { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.du-pips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.du-pip { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--accent-gold); background: transparent; cursor: pointer; padding: 0; }
+.du-pip.spent { background: var(--accent-gold); }
+.du-left { font-family: var(--font-ui); font-size: 0.8rem; color: var(--text-muted); min-width: 48px; text-align: right; }
+.du-spent .du-name strong { color: var(--text-muted); text-decoration: line-through; }
+.du-count, .sup-qty { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-headings); }
+.du-count strong, .sup-qty strong { min-width: 22px; text-align: center; color: var(--accent-gold); }
+.sup-out .sup-name strong { color: var(--text-muted); }
+.sup-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; }
+@media (max-width: 800px) { .sup-grid { grid-template-columns: 1fr; } }
+.sup-food { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; padding-top: 8px; border-top: 1px dotted var(--border-color); }
+.sup-eaters { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+.sup-eaters input { width: 52px; }
+.light-row { flex-wrap: wrap; }
+.light-bar { flex: 1 1 100%; height: 6px; background: var(--inset); border: 1px solid var(--border-color); border-radius: 2px; overflow: hidden; order: 3; }
+.light-bar > div { height: 100%; background: var(--accent-gold); }
+.light-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.level-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.level-stats > div { display: flex; flex-direction: column; min-width: 90px; }
+.level-stats span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-family: var(--font-ui); }
+.level-stats strong { font-family: var(--font-headings); color: var(--accent-gold); font-size: 1.05rem; }
 .item-use-row { margin-top: 6px; font-family: var(--font-headings); color: var(--accent-gold); font-size: 0.95rem; }
 .segmented { display: inline-flex; border: 1px solid var(--border-color); }
 .segmented button { min-height: 32px; padding: 4px 10px; border: none; background: transparent; color: var(--text-muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; }

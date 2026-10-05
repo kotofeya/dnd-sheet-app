@@ -289,7 +289,16 @@ function updateClassStats() {
         // the higher of level and Hit Dice...), and by stage before 1st level (PC1).
         const stage = (currentCharacter && typeof getCreatureStage === 'function') ? getCreatureStage(currentCharacter) : null;
         const saveLevel = clampInt(stage?.saveLevel ?? classInfo.saveLevels?.[level] ?? level, 1, 36, level);
-        const saves0 = classInfo.saves.find(tier => saveLevel >= tier.minLevel && saveLevel <= tier.maxLevel);
+        let saves0 = classInfo.saves.find(tier => saveLevel >= tier.minLevel && saveLevel <= tier.maxLevel);
+        // Own saving throw rows (PC2 pegataur), by stage or level.
+        const ownRow = stage?.saves || classInfo.savesByLevel?.[level];
+        if (Array.isArray(ownRow) && ownRow.length === 5) {
+            const [death, wands, paralysis, breath, spells] = ownRow;
+            saves0 = { death, wands, paralysis, breath, spells };
+        }
+        // A bonus to every save (PC2 nagpa), by stage or level.
+        const allBonus = Number(stage ? stage.saveBonus : classInfo.saveBonus?.[level]) || 0;
+        if (saves0 && allBonus) saves0 = { death: saves0.death - allBonus, wands: saves0.wands - allBonus, paralysis: saves0.paralysis - allBonus, breath: saves0.breath - allBonus, spells: saves0.spells - allBonus };
         const wisMod = Number(document.getElementById('wis-mod').value) || 0;
         // Worn magic items (ring of protection...) improve every saving throw.
         const zero = { death: 0, wands: 0, paralysis: 0, breath: 0, spells: 0 };

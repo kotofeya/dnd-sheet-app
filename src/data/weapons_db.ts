@@ -1445,8 +1445,22 @@ const PC1_WEAPONS_AS: [string, string][] = [
     ["Faun", "Fighter"], ["Wood Imp", "Fighter"], ["Leprechaun", "Fighter"], ["Pixie", "Fighter"], ["Pooka", "Fighter"],
     ["Sidhe (Warrior)", "Fighter"], ["Sidhe (Rogue)", "Thief"], ["Woodrake", "Thief"],
     ["Dryad", "Magic-User"], ["Sprite", "Halfling"],
+    // PC2 Top Ballista: pegataurs any weapon; harpies melee weapons only (no missiles).
+    ["Pegataur", "Fighter"], ["Harpy", "Fighter"],
 ];
+// PC2: races with a short list of their own weapons. Sphinxes and tabi use none.
+const PC2_WEAPON_LISTS: Record<string, string[]> = {
+    "Faenare": ["sling", "bow_short", "sword_short", "sword_normal", "dagger", "bolas"],
+    "Gremlin": ["dagger", "sling"],
+    "Nagpa": ["dagger", "sword_short", "axe_hand", "club", "blackjack", "hammer_throwing", "staff", "crossbow_light", "crossbow_heavy", "sling", "bow_short", "bow_long"],
+};
 Object.values(WeaponsDatabase).forEach(w => {
     if (!Array.isArray(w.useableBy)) return;
-    PC1_WEAPONS_AS.forEach(([race, as]) => { if (w.useableBy.includes(as) && !w.useableBy.includes(race)) w.useableBy.push(race); });
+    PC1_WEAPONS_AS.forEach(([race, as]) => {
+        if (race === "Harpy" && w.type === "missile" && w.id !== "rock_thrown") return;
+        if (w.useableBy.includes(as) && !w.useableBy.includes(race)) w.useableBy.push(race);
+    });
+    Object.entries(PC2_WEAPON_LISTS).forEach(([race, ids]) => {
+        if ((ids.includes(w.id) || /^(unarmed|rock)/.test(w.id)) && !w.useableBy.includes(race)) w.useableBy.push(race);
+    });
 });
