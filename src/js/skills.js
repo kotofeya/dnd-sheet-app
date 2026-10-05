@@ -542,6 +542,11 @@ function setSkillSort(mode) {
 }
 window.setSkillSort = setSkillSort;
 
+// Search box over the learned skills (not saved).
+let skillSearchText = '';
+function setSkillSearch(text) { skillSearchText = String(text || ''); renderSkillsGrid(); }
+window.setSkillSearch = setSkillSearch;
+
 function renderSkillsGrid() {
     const grid = document.getElementById('skills-grid');
     if (!grid || !currentCharacter) return;
@@ -560,7 +565,15 @@ function renderSkillsGrid() {
         return;
     }
 
-    skillSortOrder(skills, sortMode).forEach(index => {
+    const q = skillSearchText.trim().toLowerCase();
+    const order = skillSortOrder(skills, sortMode).filter(index => {
+        if (!q) return true;
+        const it = skills[index];
+        const def = GENERAL_SKILLS_DATABASE[it.skillId];
+        return `${it.name} ${it.subType || ''} ${it.ability || ''} ${(!it.isCustom && def ? def.desc : it.desc) || ''}`.toLowerCase().includes(q);
+    });
+    if (!order.length) { grid.innerHTML = `<div class="ledger-note" style="padding: 12px 0;">No skill matches “${escapeHtml(skillSearchText.trim())}”.</div>`; return; }
+    order.forEach(index => {
         const item = skills[index];
         const abilityKey = item.ability || 'intelligence';
         const abilityScore = typeof getEffectiveScore === 'function' ? getEffectiveScore(currentCharacter, abilityKey) : (Number(currentCharacter.abilities?.[abilityKey]?.score) || 10);
@@ -637,6 +650,7 @@ function openAddSkillModal() {
 
     clearSkillError();
     select.innerHTML = '';
+    safeSetVal('skill-select-search', '');
 
     const sortedKeys = Object.keys(GENERAL_SKILLS_DATABASE).sort((a, b) => 
         GENERAL_SKILLS_DATABASE[a].name.localeCompare(GENERAL_SKILLS_DATABASE[b].name)

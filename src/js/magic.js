@@ -466,6 +466,7 @@ function openCompendiumModal() {
     if (!currentCharacter) return;
     const select = document.getElementById('compendium-select');
     const preview = document.getElementById('compendium-preview');
+    safeSetVal('compendium-search', '');
     const book = currentCharacter.spellbook || { knownSpellIds: [], customSpells: [] };
     const knownIds = book.knownSpellIds || [];
 
@@ -546,6 +547,7 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
     const allSpells = getSpellsForProfile(profile, book, currentCharacter && currentCharacter.deity);
 
     let tiersHtml = '';
+    const spellQuery = String(spellSearchText[key] || '').trim().toLowerCase();
     const spellSort = SPELL_SORTS.some(o => o.value === book.sortBy) ? book.sortBy : 'book';
     const safeSlots = profile.slots || [];
     const prepMap = book.preparedSpells || {};
@@ -568,7 +570,10 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
         const isTierFull = combo ? levelsUsed + lvl > capacity : pool ? poolPrepared >= slotCount : totalPreparedInTier >= slotCount;
         const slotText = combo ? `Prepared ${totalPreparedInTier}` : pool ? `Levels ${pool[0]}-${pool[1]}: ${poolPrepared} / ${slotCount}` : `Slots: ${totalPreparedInTier} / ${slotCount}`;
 
-        const spellsListHtml = spellsOfLevel.map(s => {
+        // Search box: show only matching spells (counts and slots still include every spell).
+        const shownOfLevel = spellQuery ? spellsOfLevel.filter(s => `${s.name} ${s.description || ''} ${s.effect || ''}`.toLowerCase().includes(spellQuery)) : spellsOfLevel;
+        if (spellQuery && !shownOfLevel.length) continue;
+        const spellsListHtml = shownOfLevel.map(s => {
             const count = prepMap[s.id] || 0;
             const cast = Math.min(castMap[s.id] || 0, count);
             // One pip per prepared copy: filled = already cast today.
@@ -651,13 +656,25 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
             <span>Highest spell level <strong>${maxSpellLevel}</strong></span>
             ${combo ? `<span title="Spell Combination: any mix of spell levels up to your total">Spell levels <strong>${levelsUsed} / ${capacity}</strong></span>` : ''}
             ${preparedTotal ? `<span>Spells left today <strong>${preparedTotal - castTotal} / ${preparedTotal}</strong></span>` : ''}
+            <label class="list-search"><input type="search" id="spell-search-${key}" placeholder="Search spells…" value="${escapeHtml(spellSearchText[key] || '')}" autocomplete="off" oninput="setSpellSearch('${key}', this.value)" onkeydown="if (event.key === 'Escape') { this.value = ''; setSpellSearch('${key}', ''); }" aria-label="Search spells"></label>
             <label class="spell-sort">Sort <select class="stat-input" onchange="setSpellSort(this.value)" aria-label="Sort spells">${SPELL_SORTS.map(o => `<option value="${o.value}" ${o.value === spellSort ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
-            ${tiersHtml}
+            ${tiersHtml || (spellQuery ? `<div class="ledger-note">No spell matches “${escapeHtml(spellSearchText[key])}”.</div>` : '')}
         </div>
     `;
 }
+
+// Spellbook search box, one per spellbook (not saved). The book is redrawn as you type,
+// so the box gets its focus and cursor back afterwards.
+const spellSearchText = {};
+function setSpellSearch(key, text) {
+    spellSearchText[key] = String(text || '');
+    renderSpellbooks();
+    const box = document.getElementById(`spell-search-${key}`);
+    if (box) { box.focus(); const n = box.value.length; try { box.setSelectionRange(n, n); } catch (e) { /* search inputs */ } }
+}
+window.setSpellSearch = setSpellSearch;
 
 // How the spells inside each level are ordered.
 const SPELL_SORTS = [

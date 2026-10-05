@@ -1,5 +1,8 @@
 // js/inventory.js — Модуль инвентаря и расчета переносимого веса
 
+// Quantity for weight: a used-up stack (0, shown as DEPLETED) weighs nothing; no quantity at all means one.
+function invQty(i) { return (i.qty === undefined || i.qty === null || i.qty === '') ? 1 : Math.max(0, Number(i.qty) || 0); }
+
 // Character Movement Rates and Encumbrance (RC p.87; Dark Dungeons Chapter 8).
 const ENCUMBRANCE_TIERS = [
     { max: 400,      speed: 120, label: 'Unencumbered', color: 'var(--good)', bg: 'color-mix(in srgb, var(--good) 15%, transparent)' },
@@ -53,7 +56,7 @@ function getBagContentsWeight(bag, items) {
     const coins = bag.coins || {};
     const coinCount = (Number(coins.cp) || 0) + (Number(coins.sp) || 0) + (Number(coins.ep) || 0) + (Number(coins.gp) || 0) + (Number(coins.pp) || 0);
     const bagItems = items.filter(i => i.location === bag.id);
-    const itemsWeight = bagItems.reduce((sum, i) => sum + ((Number(i.weight) || 0) * (Number(i.qty) || 1)), 0);
+    const itemsWeight = bagItems.reduce((sum, i) => sum + ((Number(i.weight) || 0) * invQty(i)), 0);
     return coinCount + itemsWeight;
 }
 
@@ -72,7 +75,7 @@ function calculateCarriedWeight(character) {
     // Предметы на персонаже (не в Vault, не в сумках и не на животных)
     let carriedItemsWeight = items.reduce((sum, item) => {
         if (item.location === 'Vault' || bagIds.includes(item.location) || mountIds.includes(item.location) || homeIds.includes(item.location)) return sum;
-        return sum + ((Number(item.weight) || 0) * (Number(item.qty) || 1));
+        return sum + ((Number(item.weight) || 0) * invQty(item));
     }, 0);
 
     // Вес надетых на куклу предметов
@@ -170,7 +173,7 @@ function getMountContentsWeight(mount, items) {
     const coins = mount.coins || {};
     const coinCount = (Number(coins.cp) || 0) + (Number(coins.sp) || 0) + (Number(coins.ep) || 0) + (Number(coins.gp) || 0) + (Number(coins.pp) || 0);
     const mountItems = items.filter(i => i.location === mount.id);
-    const itemsWeight = mountItems.reduce((sum, i) => sum + ((Number(i.weight) || 0) * (Number(i.qty) || 1)), 0);
+    const itemsWeight = mountItems.reduce((sum, i) => sum + ((Number(i.weight) || 0) * invQty(i)), 0);
     return coinCount + itemsWeight;
 }
 
@@ -494,6 +497,7 @@ function inventoryShowState() {
 }
 function inventoryShowMode() {
     const s = inventoryShowState();
+    if (invSearchText.trim()) return 'filtered';
     return !s.trade && !s.places.length ? 'all' : s.trade && !s.places.length ? 'trade' : 'filtered';
 }
 // Every place an item can be kept: the fixed spots, bags of holding, mounts, and homes.
@@ -569,7 +573,77 @@ async function moveShownItems(place, selectEl) {
 window.moveInventoryItem = moveInventoryItem;
 window.moveShownItems = moveShownItems;
 
+// Search box and ticked items (not saved with the character).
+let invSearchText = '';
+const invSelected = new Set();
+let invSelectedOwner = null;
+function invSearchMatch(item) {
+    const q = invSearchText.trim().toLowerCase();
+    if (!q) return true;
+    const where = typeof inventoryLocationName === 'function' ? inventoryLocationName(item) : (item.location || '');
+    return `${item.name || ''} ${item.desc || ''} ${where}`.toLowerCase().includes(q);
+}
+function setInventorySearch(text) {
+    invSearchText = String(text || '');
+    syncInventoryUI();
+}
+function invPickItems() {
+    if (!currentCharacter) return [];
+    return (currentCharacter.inventory || []).filter(i => i.id && invSelected.has(i.id));
+}
+function toggleInvPick(id, on) {
+    if (on) invSelected.add(id); else invSelected.delete(id);
+    renderInventoryToolbar();
+    document.querySelectorAll('.inv-pick').forEach(cb => { cb.closest('.inv-item-row')?.classList.toggle('inv-picked', cb.checked); });
+}
+function selectShownItems(on) {
+    if (!currentCharacter) return;
+    (currentCharacter.inventory || []).filter(i => !(i.isValuable || i.valueGP > 0) && inventoryShowFilter(i))
+        .forEach(i => { if (!i.id) i.id = 'it_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); if (on) invSelected.add(i.id); else invSelected.delete(i.id); });
+    syncInventoryUI();
+}
+async function moveSelectedItems(place, selectEl) {
+    if (selectEl) selectEl.value = '';
+    if (!currentCharacter || !place) return;
+    const items = currentCharacter.inventory || [];
+    const picked = invPickItems().filter(i => (i.location || 'Backpack') !== place);
+    if (!picked.length) return;
+    picked.forEach(it => {
+        const target = items.find(o => o !== it && !o.__gone && (o.location || 'Backpack') === place && sameItemStack(o, it));
+        if (target) { target.qty = (Number(target.qty) || 0) + (Number(it.qty) || 0); it.__gone = true; invSelected.delete(it.id); }
+        else it.location = place;
+    });
+    currentCharacter.inventory = items.filter(i => !i.__gone);
+    syncInventoryUI();
+    if (typeof debouncedSave === 'function') debouncedSave();
+}
+function markSelectedForTrade(on) {
+    invPickItems().forEach(i => { if (on) i.forTrade = true; else delete i.forTrade; });
+    syncInventoryUI();
+    if (typeof debouncedSave === 'function') debouncedSave();
+}
+async function deleteSelectedItems() {
+    const picked = invPickItems();
+    if (!picked.length) return;
+    const names = picked.slice(0, 6).map(i => i.name).join(', ') + (picked.length > 6 ? `, and ${picked.length - 6} more` : '');
+    if (!(await sheetConfirm(`Delete ${picked.length} item${picked.length > 1 ? 's' : ''} from the inventory?\n\n${names}`, 'Delete'))) return;
+    const gone = new Set(picked);
+    const hadActive = picked.some(i => i.activeWhileCarried);
+    currentCharacter.inventory = (currentCharacter.inventory || []).filter(i => !gone.has(i));
+    picked.forEach(i => invSelected.delete(i.id));
+    if (hadActive && typeof afterEquipChange === 'function') setTimeout(afterEquipChange, 0);
+    syncInventoryUI();
+    if (typeof debouncedSave === 'function') debouncedSave();
+}
+window.setInventorySearch = setInventorySearch;
+window.toggleInvPick = toggleInvPick;
+window.selectShownItems = selectShownItems;
+window.moveSelectedItems = moveSelectedItems;
+window.markSelectedForTrade = markSelectedForTrade;
+window.deleteSelectedItems = deleteSelectedItems;
+
 function inventoryShowFilter(item) {
+    if (!invSearchMatch(item)) return false;
     const s = inventoryShowState();
     if (s.trade && !item.forTrade) return false;
     if (s.places.length && !s.places.includes(item.location || 'Backpack')) return false;
@@ -645,6 +719,27 @@ function renderInventoryToolbar() {
         show.open = wasOpen;
         show.classList.toggle('inv-filter-on', st.trade || st.places.length > 0);
     }
+    // Ticked items: forget ones that no longer exist (or belong to another character).
+    if (invSelectedOwner !== currentCharacter) { invSelected.clear(); invSelectedOwner = currentCharacter; }
+    const ids = new Set((currentCharacter.inventory || []).map(i => i.id));
+    [...invSelected].forEach(id => { if (!ids.has(id)) invSelected.delete(id); });
+    const bar = document.getElementById('inv-select-bar');
+    if (bar) {
+        const n = invSelected.size;
+        const placeOpts = inventoryPlaces().map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
+        bar.innerHTML = n
+            ? `<strong>${n} ticked</strong>
+               <select class="stat-input" onchange="moveSelectedItems(this.value, this)" aria-label="Move the ticked items"><option value="">Move to…</option>${placeOpts}</select>
+               <button type="button" class="btn btn-sm" onclick="markSelectedForTrade(true)">Mark for trade</button>
+               <button type="button" class="btn btn-sm" onclick="markSelectedForTrade(false)">Keep (unmark)</button>
+               <button type="button" class="btn btn-sm btn-danger" onclick="deleteSelectedItems()">Delete</button>
+               <button type="button" class="btn btn-sm" onclick="selectShownItems(true)">Tick all shown</button>
+               <button type="button" class="btn btn-sm" onclick="selectShownItems(false)">Untick all</button>`
+            : `<span class="ledger-note">Tick items to move, mark or delete several at once.</span> <button type="button" class="btn btn-sm" onclick="selectShownItems(true)">Tick all shown</button>`;
+        bar.classList.toggle('on', n > 0);
+    }
+    const srch = document.getElementById('inv-search');
+    if (srch && document.activeElement !== srch && srch.value !== invSearchText) srch.value = invSearchText;
     const mv = document.getElementById('inv-move-all');
     if (mv) mv.innerHTML = `<option value="">Choose a place…</option>` + inventoryPlaces().map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('');
     const sum = document.getElementById('inv-trade-summary');
@@ -664,7 +759,7 @@ window.toggleItemForTrade = toggleItemForTrade;
 function renderCustomItemList(subset, container, isWeaponSection) {
     subset = sortInventorySubset(subset);
     if (!subset.length && inventoryShowMode() !== 'all') {
-        container.innerHTML = `<div class="ledger-note">${inventoryShowMode() === 'trade' ? 'Nothing here is marked for trade.' : 'Nothing of this kind matches the Show filter.'}</div>`;
+        container.innerHTML = `<div class="ledger-note">${inventoryShowMode() === 'trade' ? 'Nothing here is marked for trade.' : invSearchText.trim() ? `Nothing of this kind matches “${escapeHtml(invSearchText.trim())}”.` : 'Nothing of this kind matches the Show filter.'}</div>`;
         return;
     }
     const allItems = currentCharacter.inventory || [];
@@ -684,6 +779,8 @@ function renderCustomItemList(subset, container, isWeaponSection) {
 
     subset.forEach(item => {
         const originalIndex = allItems.indexOf(item);
+        if (!item.id) item.id = 'it_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const picked = invSelected.has(item.id);
         const qty = Number(item.qty) || 0;
         const totalItemWeight = Math.round((Number(item.weight) || 0) * qty * 100) / 100;
         const isDepleted = qty <= 0;
@@ -722,6 +819,7 @@ function renderCustomItemList(subset, container, isWeaponSection) {
         const costHtml = stackValue ? ` · <span title="Value of the stack">${typeof fmtCost === 'function' ? fmtCost(stackValue) : stackValue + ' gp'}</span>` : '';
 
         const row = document.createElement('div');
+        row.className = 'inv-item-row' + (picked ? ' inv-picked' : '');
         row.style.cssText = `border: none; border-bottom: 1px dotted ${isDepleted ? 'var(--danger)' : 'var(--border-color)'}; border-radius: 0; padding: 10px 2px; background: ${isDepleted ? 'color-mix(in srgb, var(--danger) 6%, transparent)' : 'transparent'}; display: flex; flex-direction: column; gap: 6px;`;
 
         // Кнопка быстрого выстрела / расхода
@@ -737,6 +835,7 @@ function renderCustomItemList(subset, container, isWeaponSection) {
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1; min-width: 0;">
+                    <input type="checkbox" class="inv-pick" ${picked ? 'checked' : ''} onchange="toggleInvPick('${escapeHtml(String(item.id))}', this.checked)" title="Tick to move, mark or delete several items at once" aria-label="Select ${escapeHtml(item.name)}">
                     <span style="font-size: 0.75rem; color: ${isDepleted ? 'var(--danger)' : 'var(--accent-gold)'}; font-weight: bold; background: ${isDepleted ? 'color-mix(in srgb, var(--danger) 20%, transparent)' : 'var(--accent-gold-dim)'}; padding: 1px 6px; border-radius: 2px;">
                         ${isDepleted ? 'DEPLETED' : `x${qty}`}
                     </span>

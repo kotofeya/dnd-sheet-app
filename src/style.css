@@ -381,6 +381,22 @@ button:has(> .ui-icon) { display: inline-flex; align-items: center; justify-cont
 .note-col-title { font-family: var(--font-headings); font-weight: 700; color: var(--accent-gold); font-size: 1rem; }
 .note-col-body { font-size: 1rem; line-height: 1.4; }
 /* Daily uses and supplies (js/everyday.js) */
+/* Inventory: search box and ticking several items */
+.inv-search-tool { display: inline-flex; align-items: center; gap: 6px; }
+.inv-search-tool input { min-width: 180px; }
+.inv-select-bar { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px dotted var(--border-color); }
+.inv-select-bar.on { color: var(--accent-gold); }
+.inv-select-bar select { width: auto; min-width: 0; font-size: 0.9rem; padding: 2px 4px; border: 1px solid var(--border-color); background: var(--field-bg); }
+.inv-pick { accent-color: var(--accent-gold); flex: 0 0 auto; cursor: pointer; }
+.inv-item-row.inv-picked { background: color-mix(in srgb, var(--accent-gold) 9%, transparent) !important; }
+/* Search boxes for spells and skills */
+.list-search { display: inline-flex; align-items: center; gap: 6px; }
+.list-search input { min-width: 160px; padding: 3px 8px; border: 1px solid var(--border-color); background: var(--field-bg); font-size: 0.9rem; }
+.select-search { width: 100%; padding: 6px 8px; border: 1px solid var(--border-color); background: var(--field-bg); margin-bottom: 4px; box-sizing: border-box; }
+/* Character summary window (js/summary.js) */
+.summary-card { width: min(960px, calc(100vw - 32px)); height: min(90vh, 1000px); display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
+.summary-card .panel-head { margin-bottom: 4px; }
+.summary-frame { flex: 1 1 auto; width: 100%; border: 1px solid var(--border-color); border-radius: 2px; background: #FBF5E6; }
 .du-row, .sup-row, .light-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dotted var(--border-color); }
 .du-row:last-child, .sup-row:last-child { border-bottom: none; }
 .du-name, .sup-name { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 1px; }

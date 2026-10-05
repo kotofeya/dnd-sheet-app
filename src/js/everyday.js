@@ -190,17 +190,9 @@ function suppliesState() {
     return s;
 }
 function inventoryItems() { return Array.isArray(currentCharacter?.inventory) ? currentCharacter.inventory : []; }
-function itemQty(it) { return Math.max(0, Number(it.qty ?? it.quantity ?? 1) || 0); }
-// A used-up item leaves the inventory (a quantity of 0 would still count as 1 for weight).
-function setItemQty(it, q) {
-    if (q <= 0) {
-        const inv = inventoryItems();
-        const i = inv.indexOf(it);
-        if (i >= 0) inv.splice(i, 1);
-        return;
-    }
-    if ('quantity' in it && !('qty' in it)) it.quantity = q; else it.qty = q;
-}
+function itemQty(it) { return (it.qty === undefined || it.qty === null || it.qty === '') ? 1 : Math.max(0, Number(it.qty) || 0); }
+// A used-up stack stays in the inventory at 0 (shown as DEPLETED, with a Refill button).
+function setItemQty(it, q) { it.qty = Math.max(0, q); }
 
 // Food left, in days, for the people eating (a ration pack feeds one person for a week).
 function foodDaysLeft() {
@@ -240,7 +232,7 @@ function renderSupplies() {
         const extra = isRation(it) ? '<span class="eyebrow">1 pack = 1 week for one</span>' : '';
         return `<div class="sup-row${q === 0 ? ' sup-out' : ''}">
             <div class="sup-name"><strong>${escapeHtml(it.name)}</strong>${it.location && it.location !== 'Carried' ? `<span class="tag">${escapeHtml(it.location)}</span>` : ''}${extra}</div>
-            <span class="sup-qty"><button type="button" class="icon-btn" onclick="stepSupply(${i}, -1)" title="Use one">-</button><strong>${q}</strong><button type="button" class="icon-btn" onclick="stepSupply(${i}, 1)" title="Add one">+</button></span>
+            <span class="sup-qty"><button type="button" class="icon-btn" onclick="stepSupply(${i}, -1)" title="Use one" ${q <= 0 ? 'disabled' : ''}>-</button><strong>${q}</strong><button type="button" class="icon-btn" onclick="stepSupply(${i}, 1)" title="Add one">+</button></span>
             <button type="button" class="icon-btn" onclick="hideSupply('${escapeHtml(String(it.id))}')" title="Don't show here" aria-label="Hide ${escapeHtml(it.name)}">${getIcon('close', 11)}</button>
         </div>`;
     }).join('');
@@ -297,12 +289,7 @@ function suppliesChanged() {
 function stepSupply(index, delta) {
     const it = inventoryItems()[index];
     if (!it) return;
-    const q = itemQty(it) + delta;
-    if (q <= 0 && typeof sheetConfirm === 'function') {
-        sheetConfirm(`That was the last of ${it.name}: remove it from the inventory?`, 'Remove').then(ok => { if (ok) { setItemQty(it, 0); suppliesChanged(); } });
-        return;
-    }
-    setItemQty(it, q);
+    setItemQty(it, itemQty(it) + delta);
     suppliesChanged();
 }
 function hideSupply(id) { const s = suppliesState(); if (!s.hidden.includes(id)) s.hidden.push(id); renderSupplies(); if (typeof debouncedSave === 'function') debouncedSave(); }

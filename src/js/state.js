@@ -375,6 +375,23 @@ window.sheetDialog = sheetDialog;
 window.sheetAlert = sheetAlert;
 window.sheetConfirm = sheetConfirm;
 
+// Search box for a long drop-down list: hide the options that don't match, and pick the first
+// one that does if the chosen one was hidden (its change handler runs to update any preview).
+function filterSelectOptions(selectId, text) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    const q = String(text || '').trim().toLowerCase();
+    let first = null;
+    [...sel.options].forEach(o => {
+        const show = !q || o.textContent.toLowerCase().includes(q);
+        o.hidden = !show;
+        if (show && !first && o.value) first = o;
+    });
+    const cur = sel.options[sel.selectedIndex];
+    if (first && (!cur || cur.hidden)) { sel.value = first.value; sel.dispatchEvent(new Event('change')); }
+}
+window.filterSelectOptions = filterSelectOptions;
+
 window.readXp = readXp;
 window.writeXp = writeXp;
 window.renderXpBar = renderXpBar;
