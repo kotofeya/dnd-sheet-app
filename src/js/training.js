@@ -33,7 +33,7 @@ function trainingState() {
 function trainingDirectEdit() {
     const t = trainingState();
     if ((Number(currentCharacter?.level) || 1) === 1) return true;
-    return false;     // both ways are offered: train (arrow) or set directly (+1)
+    return false;     // both ways are offered: Train or Set rank
 }
 function setTrainingDirect(on) {
     const t = trainingState(); if (!t) return;
@@ -136,7 +136,8 @@ async function finishWeaponTraining() {
     if (a.check === 'pass') {
         if (!Array.isArray(currentCharacter.weaponFeats)) currentCharacter.weaponFeats = [];
         const known = currentCharacter.weaponFeats.find(w => w.weaponId === a.weaponId);
-        if (known) known.rank = a.target; else currentCharacter.weaponFeats.push({ weaponId: a.weaponId, rank: a.target, isEquipped: true });
+        // Only ever raises: the rank may already have been set higher by hand during the training.
+        if (known) { if (TRAINING_RANKS.indexOf(known.rank) < TRAINING_RANKS.indexOf(a.target)) known.rank = a.target; } else currentCharacter.weaponFeats.push({ weaponId: a.weaponId, rank: a.target, isEquipped: true });
         delete t.bonus[`${a.weaponId}:${a.target}`];
         trainingLog(`Training succeeded: ${name} is now ${TRAINING_RANK_NAMES[a.target]}.${cost}`, { weaponId: a.weaponId, rank: a.target, paid: a.paid });
     } else {
@@ -165,12 +166,12 @@ function renderTrainingPanel() {
     const t = trainingState();
     const level = Number(currentCharacter.level) || 1;
     const free = freeFeatsForTraining();
-    const directBox = level > 1 ? '<span class="eyebrow">+1 on a weapon raises it without training</span>' : '';
+    const directBox = level > 1 ? '<span class="eyebrow">“Set rank” on a weapon raises it without training</span>' : '';
     const rules = `<details class="arc-rules"><summary>Weapon training rules</summary><ul>${TRAINING_RULES.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul></details>`;
     if (!t.active) {
         const note = level === 1
             ? 'Starting weapon feats are spent at once on Basic proficiency. Feats gained at later levels must be trained.'
-            : (free > 0 ? `You have ${free} free weapon feat${free > 1 ? 's' : ''} to train: use the arrow on a weapon to train it, or “+ Train Weapon” for a new one.` : 'No free weapon feats to train. More come with new levels.');
+            : (free > 0 ? `You have ${free} free weapon feat${free > 1 ? 's' : ''} to train: use “Train” on a weapon to raise it, or “+ Train Weapon” for a new one.` : 'No free weapon feats to train. More come with new levels.');
         el.innerHTML = `<div class="arc-row-head"><span class="eyebrow eyebrow-strong">Training</span>${directBox}</div><p class="sub-caption" style="margin: 6px 0;">${escapeHtml(note)}</p>${rules}`;
         return;
     }

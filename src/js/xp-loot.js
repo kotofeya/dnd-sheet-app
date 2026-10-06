@@ -6,13 +6,13 @@ function addLootItemRow(qty = 1, value = '', name = '') {
     const row = document.createElement('div');
     row.id = rowId;
     row.className = 'loot-item-row';
-    row.style.cssText = 'display: grid; grid-template-columns: 50px 1fr 80px 24px; gap: 6px; align-items: center;';
+    row.style.cssText = 'display: grid; grid-template-columns: 50px 1fr 80px 28px; gap: 6px; align-items: center;';
     
     row.innerHTML = `
-        <input type="number" class="stat-input loot-item-qty" value="${escapeHtml(qty)}" min="1" placeholder="Qty" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px; text-align: center;" title="Quantity">
-        <input type="text" class="stat-input loot-item-desc" value="${escapeHtml(name)}" placeholder="Item (e.g. Ruby, Crown)" style="border: 1px solid var(--border-color); padding: 4px 6px; border-radius: 2px; text-align: left;" title="Description">
-        <input type="number" class="stat-input loot-item-val" value="${escapeHtml(value)}" min="0" placeholder="GP each" style="border: 1px solid var(--border-color); padding: 4px 6px; border-radius: 2px; text-align: right;" title="Value per item in GP">
-        <button type="button" onclick="removeLootItemRow('${rowId}')" style="background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 0.9rem;" title="Remove" aria-label="Remove">${getIcon('close', 15)}</button>
+        <input type="number" class="stat-input loot-item-qty" value="${escapeHtml(qty)}" min="1" placeholder="Qty" style="border: 1px solid var(--border-color); padding: 4px; border-radius: 2px; text-align: center;" title="Quantity" aria-label="Quantity">
+        <input type="text" class="stat-input loot-item-desc" value="${escapeHtml(name)}" placeholder="Item (e.g. Ruby, Crown)" style="border: 1px solid var(--border-color); padding: 4px 6px; border-radius: 2px; text-align: left;" title="Description" aria-label="Gem or art object">
+        <input type="number" class="stat-input loot-item-val" value="${escapeHtml(value)}" min="0" placeholder="GP each" style="border: 1px solid var(--border-color); padding: 4px 6px; border-radius: 2px; text-align: right;" title="Value per item in GP" aria-label="Value per item in GP">
+        <button type="button" class="icon-btn danger" onclick="removeLootItemRow('${rowId}')" title="Remove this item" aria-label="Remove this item">${getIcon('close', 15)}</button>
     `;
 
     row.querySelectorAll('input').forEach(input => {
@@ -36,13 +36,37 @@ function openLootModal() {
     if (container && container.children.length === 0) {
         addLootItemRow(1, '', '');
     }
-    document.getElementById('loot-calc-modal').style.display = 'flex';
+    const modal = document.getElementById('loot-calc-modal');
+    modal.style.display = 'flex';
+    if (typeof resetFormEdits === 'function') resetFormEdits(modal);
     calculateLootTotal();
+    setTimeout(() => document.getElementById('loot-cp')?.focus(), 30);
 }
 
 function closeLootModal() {
     document.getElementById('loot-calc-modal').style.display = 'none';
 }
+
+// Esc or a click outside: ask before throwing away what was typed, then clear the calculator.
+async function dismissLootModal() {
+    const modal = document.getElementById('loot-calc-modal');
+    if (!modal) return;
+    if (modal.__edited) {
+        if (typeof okToDiscard === 'function' && !(await okToDiscard(modal))) return;
+        resetLootCalculator();
+    }
+    closeLootModal();
+}
+(function setupLootWindow() {
+    const modal = document.getElementById('loot-calc-modal');
+    if (!modal) return;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Treasure and coin calculator');
+    if (typeof watchFormEdits === 'function') watchFormEdits(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) dismissLootModal(); });
+    if (typeof registerModalCloser === 'function') registerModalCloser('loot-calc-modal', dismissLootModal);
+})();
 
 function calculateLootTotal() {
     const cp = Number(document.getElementById('loot-cp').value) || 0;
@@ -290,6 +314,16 @@ function updateSubXPPreview() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', updateSubXPPreview); 
 });
+// The Married / Map Maker boxes belong to the character on screen.
+[['bonus-map', 'map'], ['bonus-married', 'married'], ['sub-bonus-map', 'subMap'], ['sub-bonus-married', 'subMarried']].forEach(([id, k]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => {
+        if (!currentCharacter) return;
+        if (!currentCharacter.xpBonuses || typeof currentCharacter.xpBonuses !== 'object') currentCharacter.xpBonuses = {};
+        currentCharacter.xpBonuses[k] = el.checked;
+        if (typeof debouncedSave === 'function') debouncedSave();
+    });
+});
 
 
 async function copyLootSummary() {
@@ -358,11 +392,11 @@ async function copyLootSummary() {
     const btn = document.getElementById('loot-copy-btn');
     if (btn) {
         const originalHTML = btn.innerHTML;
-        btn.innerHTML = `<span style="color: var(--good);">${getIcon('check', 13)} Copied to Clipboard!</span>`;
+        btn.innerHTML = `<span style="color: var(--good);">${getIcon('check', 13)} Copied</span>`;
         btn.style.borderColor = 'var(--good)';
         setTimeout(() => {
             btn.innerHTML = originalHTML;
-            btn.style.borderColor = 'var(--info)';
+            btn.style.borderColor = '';
         }, 2000);
     }
 }
@@ -371,6 +405,7 @@ window.addLootItemRow = addLootItemRow;
 window.removeLootItemRow = removeLootItemRow;
 window.openLootModal = openLootModal;
 window.closeLootModal = closeLootModal;
+window.dismissLootModal = dismissLootModal;
 window.calculateLootTotal = calculateLootTotal;
 window.applyLootCalculation = applyLootCalculation;
 window.copyLootSummary = copyLootSummary;

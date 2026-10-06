@@ -5,6 +5,7 @@
 let partyData = { parties: [], activeId: null };
 let partyMembers = [];         // [{ file, data, missing }]
 let partyBusy = false;
+let partyRenaming = false;     // the party name is being edited in place
 
 const COIN_KEYS = ['pp', 'gp', 'ep', 'sp', 'cp'];
 const COIN_GP = { pp: 5, gp: 1, ep: 0.5, sp: 0.1, cp: 0.01 };
@@ -45,12 +46,15 @@ async function openPartyView() {
         await saveParties();
     }
     if (!activeParty()) partyData.activeId = partyData.parties[0].id;
+    partyRenaming = false;
     await loadPartyMembers();
     renderPartyView();
 }
 function closePartyView() {
     const m = document.getElementById('party-modal'); if (m) m.style.display = 'none';
+    partyRenaming = false;
 }
+registerModalCloser('party-modal', closePartyView);
 async function loadPartyMembers() {
     const p = activeParty();
     if (typeof debouncedSave?.flush === 'function') debouncedSave.flush();
@@ -65,6 +69,8 @@ async function loadPartyMembers() {
 // ----- Member stats ---------------------------------------------------------------------------
 function memberNextXp(c) {
     try {
+        // The next stage for a young creature hero, otherwise the next level.
+        if (typeof nextXpThreshold === 'function') { const n = nextXpThreshold(c); return n ? n.xp : null; }
         const t = getXpTableFor(c);
         const lvl = Number(c.level) || 1;
         return t && t[lvl + 1] !== undefined ? t[lvl + 1] : null;
@@ -110,10 +116,13 @@ async function renderPartyView() {
     const t = p.treasury;
     const shareInputs = live.map(m => `<label class="arc-field arc-narrow"><span class="eyebrow">${escapeHtml(m.data.name || '?')}</span><input type="number" min="0" step="0.5" class="stat-input arc-input party-share" data-file="${escapeHtml(m.file)}" value="${Number(p.shares?.[m.file] ?? 1)}" onchange="setPartyShare('${escapeHtml(m.file)}', this.value)"></label>`).join('');
     body.innerHTML = `
-        <div class="arc-fields">
-            <label class="arc-field"><span class="eyebrow">Party</span><select class="stat-input arc-input" onchange="switchParty(this.value)">${partyData.parties.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('')}</select></label>
-            <label class="arc-field"><span class="eyebrow">Name</span><input type="text" class="stat-input arc-input" value="${escapeHtml(p.name)}" onchange="renameParty(this.value)"></label>
-            <span class="arc-actions" style="margin: 0;"><button type="button" class="btn btn-sm" onclick="addParty()">+ New party</button><button type="button" class="btn btn-sm btn-danger" onclick="deleteParty()">Delete party</button></span>
+        <div class="arc-fields party-picker">
+            ${partyRenaming ? `
+            <label class="arc-field"><span class="eyebrow">Party name</span><input type="text" id="party-rename-input" class="stat-input arc-input" maxlength="80" value="${escapeHtml(p.name)}" onkeydown="if (event.key === 'Enter') { event.preventDefault(); renameParty(this.value); } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelPartyRename(); }"></label>
+            <span class="arc-actions" style="margin: 0;"><button type="button" class="btn btn-sm btn-accent" onclick="renameParty(document.getElementById('party-rename-input').value)">Save name</button><button type="button" class="btn btn-sm" onclick="cancelPartyRename()">Cancel</button></span>`
+            : `
+            <label class="arc-field"><span class="eyebrow">Party</span><span class="party-pick-row"><select class="stat-input arc-input" aria-label="Party" onchange="switchParty(this.value)">${partyData.parties.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('')}</select><button type="button" class="icon-btn party-rename-btn" onclick="startPartyRename()" title="Rename this party" aria-label="Rename this party">${getIcon('edit', 14)}</button></span></label>
+            <span class="arc-actions" style="margin: 0;"><button type="button" class="btn btn-sm" onclick="addParty()">+ New party</button></span>`}
         </div>
 
         <div class="arc-sub-head"><span class="eyebrow eyebrow-strong">Members</span><span class="eyebrow">${live.length} character${live.length === 1 ? '' : 's'}</span></div>
@@ -144,13 +153,14 @@ async function renderPartyView() {
 
         <div class="arc-sub-head"><span class="eyebrow eyebrow-strong">Party notes</span></div>
         <textarea class="stat-input arc-input" rows="3" placeholder="Goals, rumours, debts, who carries what…" onchange="setPartyNotes(this.value)">${escapeHtml(p.notes || '')}</textarea>
-        ${p.log.length ? `<details class="arc-rules"><summary>Party log (${p.log.length})</summary><div class="chronicle-list">${p.log.slice().reverse().map(e => `<div class="chronicle-row" style="grid-template-columns: 1fr;"><div><div class="chronicle-text">${escapeHtml(e.text)}</div><div class="chronicle-meta">${escapeHtml(new Date(e.at).toLocaleString())}</div></div></div>`).join('')}</div></details>` : ''}`;
+        ${p.log.length ? `<details class="arc-rules"><summary>Party log (${p.log.length})</summary><div class="chronicle-list">${p.log.slice().reverse().map(e => `<div class="chronicle-row" style="grid-template-columns: 1fr;"><div><div class="chronicle-text">${escapeHtml(e.text)}</div><div class="chronicle-meta">${escapeHtml(new Date(e.at).toLocaleString())}</div></div></div>`).join('')}</div></details>` : ''}
+        <div class="party-delete-row"><button type="button" class="link-btn party-delete" onclick="deleteParty()">Delete this party…</button><span class="sub-caption">The characters themselves are kept.</span></div>`;
     renderPartySplitPreview();
 }
 
 // ----- Party editing ------------------------------------------------------------------------------
-async function switchParty(id) { partyData.activeId = id; await saveParties(); await loadPartyMembers(); renderPartyView(); }
-async function addParty() { newParty(`Party ${partyData.parties.length + 1}`); await saveParties(); await loadPartyMembers(); renderPartyView(); }
+async function switchParty(id) { partyRenaming = false; partyData.activeId = id; await saveParties(); await loadPartyMembers(); renderPartyView(); }
+async function addParty() { partyRenaming = false; newParty(`Party ${partyData.parties.length + 1}`); await saveParties(); await loadPartyMembers(); renderPartyView(); }
 async function deleteParty() {
     const p = activeParty(); if (!p) return;
     if (!(await sheetConfirm(`Delete the party "${p.name}"? The characters themselves are not touched.`, 'Delete'))) return;
@@ -159,7 +169,12 @@ async function deleteParty() {
     partyData.activeId = partyData.parties[0].id;
     await saveParties(); await loadPartyMembers(); renderPartyView();
 }
-async function renameParty(name) { const p = activeParty(); if (!p) return; p.name = String(name || '').trim().slice(0, 80) || 'The Party'; await saveParties(); renderPartyView(); }
+async function renameParty(name) { const p = activeParty(); if (!p) return; p.name = String(name || '').trim().slice(0, 80) || 'The Party'; partyRenaming = false; await saveParties(); renderPartyView(); }
+function startPartyRename() {
+    partyRenaming = true;
+    renderPartyView().then(() => { const el = document.getElementById('party-rename-input'); if (el) { el.focus(); el.select(); } });
+}
+function cancelPartyRename() { partyRenaming = false; renderPartyView(); }
 async function setPartyNotes(v) { const p = activeParty(); if (!p) return; p.notes = String(v || '').slice(0, 20000); await saveParties(); }
 async function togglePartyMember(file, on) {
     const p = activeParty(); if (!p) return;
@@ -233,7 +248,8 @@ function addXpToData(c, amount, text) {
     const lvl = Number(c.level) || 1;
     const before = Number(c.experiencePoints) || 0;
     let xp = before + amount;
-    if (table && lvl < 36 && table[lvl + 2] !== undefined) xp = Math.min(xp, table[lvl + 2] - 1);
+    if (table && lvl < 36) xp = Math.min(xp, typeof xpAwardCap === 'function' ? xpAwardCap(c) : (table[lvl + 2] ?? Infinity) - 1);
+    const stageBefore = typeof getCreatureStage === 'function' ? getCreatureStage(c) : null;
     c.experiencePoints = xp;
     let after = lvl;
     if (table && lvl < 36 && table[lvl + 1] !== undefined && xp >= table[lvl + 1]) { after = lvl + 1; c.level = after; }
@@ -241,6 +257,10 @@ function addXpToData(c, amount, text) {
     const stamp = () => ({ id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, at: new Date().toISOString() });
     c.chronicle.push({ ...stamp(), kind: 'xp', text: `${text}: +${(xp - before).toLocaleString('en-US')} XP${xp - before < amount ? ' (capped: one level per award)' : ''}. Total ${xp.toLocaleString('en-US')}.`, data: { awarded: amount, credited: xp - before, total: xp } });
     if (after > lvl) c.chronicle.push({ ...stamp(), kind: 'level', text: `Level ${lvl} → ${after} (party award). Hit points not yet rolled: add them on the sheet.`, data: { from: lvl, to: after } });
+    else {
+        const stageAfter = typeof getCreatureStage === 'function' ? getCreatureStage(c) : null;
+        if (stageBefore && stageAfter !== stageBefore) c.chronicle.push({ ...stamp(), kind: 'level', text: `${stageBefore.name} → ${stageAfter ? stageAfter.name : 'level I'} (party award). New Hit Dice not yet rolled: add them on the sheet.`, data: { from: lvl, to: after } });
+    }
     return { credited: xp - before, levelUp: after > lvl ? [lvl, after] : null };
 }
 async function applyPartySplit() {
@@ -303,7 +323,7 @@ async function applyPartySplit() {
 }
 
 Object.assign(window, {
-    openPartyView, closePartyView, switchParty, addParty, deleteParty, renameParty, setPartyNotes, togglePartyMember,
+    openPartyView, closePartyView, startPartyRename, cancelPartyRename, switchParty, addParty, deleteParty, renameParty, setPartyNotes, togglePartyMember,
     setPartyShare, setTreasuryCoin, addTreasuryItem, removeTreasuryItem, openPartyMember, fillSplitFromTreasury,
     renderPartySplitPreview, applyPartySplit,
 });

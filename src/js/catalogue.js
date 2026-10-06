@@ -143,31 +143,76 @@ function newItemId() {
     return `itm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+// Adds an item (opts.place: where it goes, default the backpack; opts.quiet: no message).
+// An identical stack already in that place just grows. Returns the item's index in the inventory.
 function addCatalogueItemToInventory(item, opts = {}) {
-    if (!currentCharacter) return;
+    if (!currentCharacter) return -1;
     if (!Array.isArray(currentCharacter.inventory)) currentCharacter.inventory = [];
+    const inv = currentCharacter.inventory;
     const entry = { location: 'Backpack', qty: 1, magicBonus: 0, isCursed: false, concentration: false, isValuable: false, ...item, uid: newItemId() };
-    // Identical mundane items stack.
-    const same = !entry.magic && !entry.charges && currentCharacter.inventory.find(i => i.catalogId && i.catalogId === entry.catalogId && i.location === entry.location && !i.magic && !(i.isValuable || i.valueGP > 0));
-    if (same) same.qty = (Number(same.qty) || 0) + (Number(entry.qty) || 1);
-    else currentCharacter.inventory.push(entry);
+    if (opts.place) entry.location = opts.place;
+    const where = entry.location || 'Backpack';
+    const stackOk = typeof sameItemStack === 'function'
+        ? o => (o.location || 'Backpack') === where && !(o.isValuable || o.valueGP > 0) && sameItemStack(o, entry)
+        : o => !entry.magic && !entry.charges && o.catalogId && o.catalogId === entry.catalogId && o.location === entry.location && !o.magic;
+    const same = inv.find(stackOk);
+    let index;
+    if (same) { same.qty = (Number(same.qty) || 0) + (Number(entry.qty) || 1); index = inv.indexOf(same); }
+    else { inv.push(entry); index = inv.length - 1; }
     if (typeof syncInventoryUI === 'function') syncInventoryUI();
     if (typeof debouncedSave === 'function') debouncedSave();
-    const msg = document.getElementById('catalogue-msg');
-    if (msg) { msg.textContent = `Added ${entry.qty > 1 ? entry.qty + ' × ' : ''}${entry.name}.`; msg.style.opacity = 1; }
+    if (!opts.quiet) catalogueToast(`Added ${Number(entry.qty) > 1 ? entry.qty + ' × ' : ''}${entry.name} to ${catPlaceName(where)}`);
     if (opts.log && typeof addChronicleEntry === 'function') addChronicleEntry('note', `Gained ${entry.name}.`, { item: entry.catalogId });
+    return index;
+}
+function catalogueToast(text) {
+    if (typeof sheetToast === 'function') sheetToast(text, { ms: 3500 });
+    const msg = document.getElementById('catalogue-msg');
+    if (msg) msg.textContent = '';
+}
+function catPlaceName(place) {
+    return typeof inventoryLocationName === 'function' ? inventoryLocationName({ location: place }) : String(place || 'Backpack');
+}
+
+// How many and where: the Add buttons read the row's amount box and the window's "Add to" place.
+function catQtyBox(key, def = 1) {
+    return `<input type="number" min="1" max="9999" class="stat-input arc-input cat-qty" id="catqty-${key}" value="${def}" aria-label="How many to add" title="How many to add">`;
+}
+function catReadQty(key, def = 1) {
+    const el = document.getElementById(`catqty-${key}`);
+    const n = Math.round(Number(el && el.value));
+    return n >= 1 ? Math.min(9999, n) : def;
+}
+function catPlace() { return catalogueState.place || 'Backpack'; }
+function setCataloguePlace(v) { catalogueState.place = v || 'Backpack'; }
+function renderCataloguePlace() {
+    const sel = document.getElementById('catalogue-place');
+    if (!sel) return;
+    const places = typeof inventoryPlaces === 'function' ? inventoryPlaces() : [['Backpack', 'Backpack']];
+    if (!places.some(p => p[0] === catPlace())) catalogueState.place = 'Backpack';
+    sel.innerHTML = places.map(([v, l]) => `<option value="${escapeHtml(v)}" ${v === catPlace() ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('');
+}
+// The Add buttons in the catalogue (kind: gear, weapon, armour, magic).
+function catalogueAdd(kind, id) {
+    const opts = { place: catPlace() };
+    if (kind === 'gear') { const g = DD_GEAR.find(x => x.id === id); addGearFromCatalogue(id, { ...opts, qty: catReadQty(id, (g && g.pack) || 1) }); }
+    else if (kind === 'weapon') addWeaponFromCatalogue(id, { ...opts, qty: catReadQty('w_' + id) });
+    else if (kind === 'armour') addArmourFromCatalogue(id, { ...opts, qty: catReadQty(id) });
+    else if (kind === 'magic') addMagicFromCatalogue(id, null, { ...opts, qty: catReadQty(id) });
 }
 
 // ---------------------------------------------------------------------------
 // Modal
 // ---------------------------------------------------------------------------
 function openCatalogue(tab = 'gear', group = '') {
-    catalogueState = { tab, query: '', group, open: null };
+    const keepPlace = document.getElementById('catalogue-modal')?.style.display === 'flex' ? catalogueState.place : 'Backpack';
+    catalogueState = { tab, query: '', group, open: null, place: keepPlace };
     const modal = document.getElementById('catalogue-modal');
     if (!modal) return;
     modal.style.display = 'flex';
     const search = document.getElementById('catalogue-search');
     if (search) search.value = '';
+    renderCataloguePlace();
     renderCatalogue();
     if (search) search.focus();
 }
@@ -175,6 +220,7 @@ function closeCatalogue() {
     const modal = document.getElementById('catalogue-modal');
     if (modal) modal.style.display = 'none';
 }
+if (typeof registerModalCloser === 'function') registerModalCloser('catalogue-modal', closeCatalogue);
 function setCatalogueTab(tab) {
     catalogueState.tab = tab; catalogueState.group = ''; catalogueState.open = null;
     renderCatalogue();
@@ -198,6 +244,8 @@ function renderCatalogue() {
     const filters = document.getElementById('catalogue-filters');
     const search = document.getElementById('catalogue-search');
     if (search) search.style.display = catalogueState.tab === 'forge' ? 'none' : '';
+    const placeTool = document.getElementById('catalogue-place-tool');
+    if (placeTool) placeTool.style.display = catalogueState.tab === 'mounts' ? 'none' : '';
     if (filters) {
         filters.innerHTML = catalogueState.tab === 'magic'
             ? `<select class="stat-input arc-input" style="max-width: 220px;" onchange="setCatalogueGroup(this.value)"><option value="">All magic items</option>${Object.entries(MAGIC_GROUPS).map(([k, v]) => `<option value="${k}" ${catalogueState.group === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`
@@ -241,12 +289,14 @@ function renderGearTab() {
         id: g.id, name: g.pack > 1 ? `${g.name} (${g.pack})` : g.name,
         meta: `${fmtWeight(g.weight * g.pack)} · ${escapeHtml(g.costText)}`,
         desc: `${escapeHtml(g.desc)}<div class="arc-source">${escapeHtml(g.source)}</div>`,
-        actions: `<button type="button" class="btn btn-sm" onclick="addGearFromCatalogue('${g.id}')">Add</button>`,
+        actions: `${catQtyBox(g.id, g.pack || 1)}<button type="button" class="btn btn-sm" onclick="catalogueAdd('gear', '${g.id}')">Add</button>`,
     })).join('');
 }
-function addGearFromCatalogue(id) {
-    const g = DD_GEAR.find(x => x.id === id); if (!g) return;
-    addCatalogueItemToInventory({ catalogId: g.id, name: g.name, category: g.category, qty: g.pack, weight: g.weight, cost: g.cost, desc: g.desc, source: g.source });
+// opts.qty: how many single pieces (default: the usual bundle, e.g. 20 arrows); opts.place: where.
+function addGearFromCatalogue(id, opts = {}) {
+    const g = DD_GEAR.find(x => x.id === id); if (!g) return -1;
+    const qty = Math.max(1, Math.round(Number(opts.qty) || g.pack || 1));
+    return addCatalogueItemToInventory({ catalogId: g.id, name: g.name, category: g.category, qty, weight: g.weight, cost: g.cost, desc: g.desc, source: g.source }, opts);
 }
 
 // ----- Weapons -----
@@ -259,15 +309,16 @@ function renderWeaponsTab() {
         return catRow({
             id: 'w_' + w.id, name: w.name,
             meta: `${fmtWeight(weaponWeight(w))} · ${escapeHtml(w.cost || '—')}`,
-            tagHtml: usable ? '' : '<span class="tag" style="color: var(--danger);">Not for your class</span>',
+            tagHtml: usable ? '' : `<span class="tag" style="color: var(--danger);">Not usable by ${escapeHtml(currentCharacter?.characterClass || 'your class')}</span>`,
             desc: `${escapeHtml(typeLabel)}. Basic mastery: damage ${escapeHtml(basic.damage || '—')}${basic.range ? `, range ${escapeHtml(basic.range)}` : ''}${basic.special ? `, ${escapeHtml(basic.special)}` : ''}. Weapon feats and mastery are on the Combat tab.<div class="arc-source">Dark Dungeons Table 8-2 / Mystara Extra Rules Compendium</div>`,
-            actions: `<button type="button" class="btn btn-sm" onclick="addWeaponFromCatalogue('${w.id}')">Add</button><button type="button" class="btn btn-sm" onclick="catalogueEquip('weapon', '${w.id}')">Equip</button><button type="button" class="btn btn-sm" onclick="openForgeFor('weapon', '${w.id}')" title="Make a magic one">Enchant</button>`,
+            actions: `${catQtyBox('w_' + w.id)}<button type="button" class="btn btn-sm" onclick="catalogueAdd('weapon', '${w.id}')">Add</button><button type="button" class="btn btn-sm" onclick="catalogueEquip('weapon', '${w.id}')">Equip</button><button type="button" class="btn btn-sm" onclick="openForgeFor('weapon', '${w.id}')" title="Make a magic one">Enchant</button>`,
         });
     }).join('');
 }
-function addWeaponFromCatalogue(weaponId) {
-    const w = (window.GlobalWeaponsDatabase || {})[weaponId]; if (!w) return;
-    addCatalogueItemToInventory({ catalogId: 'weapon_' + w.id, weaponId: w.id, name: w.name, category: 'weapon', weight: weaponWeight(w), cost: parseCostGp(w.cost), desc: '' });
+function addWeaponFromCatalogue(weaponId, opts = {}) {
+    const w = (window.GlobalWeaponsDatabase || {})[weaponId]; if (!w) return -1;
+    const qty = Math.max(1, Math.round(Number(opts.qty) || 1));
+    return addCatalogueItemToInventory({ catalogId: 'weapon_' + w.id, weaponId: w.id, name: w.name, category: 'weapon', qty, weight: weaponWeight(w), cost: parseCostGp(w.cost), desc: '' }, opts);
 }
 
 // ----- Armour -----
@@ -284,9 +335,9 @@ function renderArmourTab() {
         return catRow({
             id: a.id, name: a.name,
             meta: `${a.isShield ? 'AC -1' : `AC ${a.baseAC}`} · ${fmtWeight(a.weight)} · ${fmtCost(a.cost)}`,
-            tagHtml: allowed ? '' : '<span class="tag" style="color: var(--danger);">Not for your class</span>',
+            tagHtml: allowed ? '' : `<span class="tag" style="color: var(--danger);">Not usable by ${escapeHtml(currentCharacter?.characterClass || 'your class')}</span>`,
             desc: `${escapeHtml(a.desc)}<div class="arc-source">${escapeHtml(a.source)}${a.centaurOnly || a.pegataurOnly ? '' : ', Table 8-3'}</div>`,
-            actions: `<button type="button" class="btn btn-sm" onclick="addArmourFromCatalogue('${a.id}')">Add</button><button type="button" class="btn btn-sm" onclick="catalogueEquip('armour', '${a.id}')">Equip</button><button type="button" class="btn btn-sm" onclick="openForgeFor('${a.isShield ? 'shield' : 'armour'}', '${a.id}')">Enchant</button>`,
+            actions: `${catQtyBox(a.id)}<button type="button" class="btn btn-sm" onclick="catalogueAdd('armour', '${a.id}')">Add</button><button type="button" class="btn btn-sm" onclick="catalogueEquip('armour', '${a.id}')">Equip</button><button type="button" class="btn btn-sm" onclick="openForgeFor('${a.isShield ? 'shield' : 'armour'}', '${a.id}')">Enchant</button>`,
         });
     }).join('');
 }
@@ -295,9 +346,10 @@ function armourItem(a) {
         ? { catalogId: a.id, name: a.name, category: 'equipment', isShield: true, slot: 'offHand', weight: a.weight, cost: a.cost, desc: a.desc }
         : { catalogId: a.id, name: a.name, category: 'equipment', isArmor: true, baseAC: a.baseAC, slot: 'armor', weight: a.weight, cost: a.cost, desc: a.desc, ...(a.centaurOnly ? { centaurOnly: true } : {}), ...(a.pegataurOnly ? { pegataurOnly: true } : {}) };
 }
-function addArmourFromCatalogue(id) {
-    const a = DD_ARMOUR.find(x => x.id === id); if (!a) return;
-    addCatalogueItemToInventory(armourItem(a));
+function addArmourFromCatalogue(id, opts = {}) {
+    const a = DD_ARMOUR.find(x => x.id === id); if (!a) return -1;
+    const qty = Math.max(1, Math.round(Number(opts.qty) || 1));
+    return addCatalogueItemToInventory({ ...armourItem(a), qty }, opts);
 }
 
 // ----- Animals and vehicles -----
@@ -317,8 +369,7 @@ function addMountFromCatalogue(key) {
     currentCharacter.mounts.push({ id: 'mount_' + Date.now(), name, type: key, coins: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 } });
     if (typeof syncInventoryUI === 'function') syncInventoryUI();
     if (typeof debouncedSave === 'function') debouncedSave();
-    const msg = document.getElementById('catalogue-msg');
-    if (msg) msg.textContent = `Added ${name}.`;
+    catalogueToast(`Added ${name} (see Mounts & Beasts of Burden)`);
 }
 
 // ----- Magic items -----
@@ -355,7 +406,7 @@ function renderMagicTab() {
                 meta: `${fmtWeight(x.weight)}${x.cost ? ` · ${fmtCost(x.cost)}` : ''}`,
                 warn: magicUsableNote(x),
                 desc: `${facts ? `<div class="cat-facts">${facts}</div>` : ''}${escapeHtml(x.desc)}${Array.isArray(x.variants) && x.variants.some(v => v.note) ? `<ul class="cat-variant-notes">${x.variants.map(v => `<li><strong>${escapeHtml(v.suffix)}</strong> ${escapeHtml(v.note || '')}</li>`).join('')}</ul>` : ''}<div class="arc-source">${x.houseRule || (x.source && x.source !== 'Rules Cyclopedia') ? escapeHtml(x.source) : `Rules Cyclopedia p. ${x.page || ''}`}</div>`,
-                actions: `${variants}<button type="button" class="btn btn-sm" onclick="addMagicFromCatalogue('${x.id}')">Add</button>${(x.slot || x.techWeapon || x.weaponId || ['wand', 'staff', 'rod'].includes(x.group)) ? `<button type="button" class="btn btn-sm" onclick="catalogueEquip('magic', '${x.id}')">Equip</button>` : ''}`,
+                actions: `${variants}${x.id === 'misc_bag_of_holding' ? '' : catQtyBox(x.id)}<button type="button" class="btn btn-sm" onclick="catalogueAdd('magic', '${x.id}')">Add</button>${(x.slot || x.techWeapon || x.weaponId || ['wand', 'staff', 'rod'].includes(x.group)) ? `<button type="button" class="btn btn-sm" onclick="catalogueEquip('magic', '${x.id}')">Equip</button>` : ''}`,
             });
         }).join('');
     }
@@ -376,20 +427,28 @@ function renderMagicTab() {
     }
     return html;
 }
-function addMagicFromCatalogue(id, variantIndex = null) {
-    const x = RC_MAGIC_ITEMS.find(i => i.id === id); if (!x) return;
+function addMagicFromCatalogue(id, variantIndex = null, opts = {}) {
+    const x = RC_MAGIC_ITEMS.find(i => i.id === id); if (!x) return -1;
     // A bag of holding becomes a container you can put things in.
     if (id === 'misc_bag_of_holding' && typeof addNewBagOfHolding === 'function') {
         addNewBagOfHolding();
-        const msg = document.getElementById('catalogue-msg');
-        if (msg) msg.textContent = 'Added a Bag of Holding (see Bags of Holding).';
-        return;
+        catalogueToast('Added a Bag of Holding (see Bags of Holding)');
+        return -1;
+    }
+    // Several at once: items with charges each roll their own; the rest stack.
+    const want = Math.max(1, Math.round(Number(opts.qty) || 1));
+    if (want > 1 && x.charges) {
+        let idx = -1;
+        for (let k = 0; k < want; k++) idx = addMagicFromCatalogue(id, variantIndex, { ...opts, qty: 1, quiet: true });
+        const v0 = Array.isArray(x.variants) && x.variants.length ? x.variants[variantIndex !== null ? Number(variantIndex) : Number(document.getElementById(`var-${id}`)?.value) || 0] : null;
+        catalogueToast(`Added ${want} × ${v0 ? `${x.name} ${v0.suffix}` : x.name} to ${catPlaceName(opts.place || 'Backpack')}`);
+        return idx;
     }
     const sel = document.getElementById(`var-${id}`);
     const vi = variantIndex !== null ? Number(variantIndex) : sel ? Number(sel.value) || 0 : 0;
     const v = Array.isArray(x.variants) && x.variants.length ? x.variants[vi] || x.variants[0] : null;
     const item = {
-        catalogId: x.id, name: v ? `${x.name} ${v.suffix}` : x.name, group: x.group, magic: true,
+        catalogId: x.id, name: v ? `${x.name} ${v.suffix}` : x.name, group: x.group, magic: true, qty: want,
         category: x.group === 'potion' || x.group === 'scroll' ? 'consumable' : 'equipment',
         weight: x.weight, desc: x.desc, slot: x.slot || undefined, isCursed: Boolean(x.cursed), concentration: Boolean(x.concentration),
         usableBy: x.usableBy, duration: x.duration, page: x.page, source: x.source || 'Rules Cyclopedia',
@@ -414,7 +473,7 @@ function addMagicFromCatalogue(id, variantIndex = null) {
         if (m) { let t = Number(m[3]) || 0; for (let i = 0; i < Number(m[1]); i++) t += 1 + Math.floor(Math.random() * Number(m[2])); item.charges = t; item.chargesRule = x.charges; }
         else if (/^\d+$/.test(String(x.charges))) item.charges = Number(x.charges);
     }
-    addCatalogueItemToInventory(item);
+    return addCatalogueItemToInventory(item, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -596,7 +655,7 @@ function renderForge() {
     </div>`;
 }
 function addForgedItem() {
-    if (forgeState && forgeState.kind === 'item') { if (currentCharacter) addForgedMiscItem(); return; }
+    if (forgeState && forgeState.kind === 'item') { return currentCharacter ? addForgedMiscItem() : -1; }
     const r = forgeResult(); if (!r || !currentCharacter) return;
     const f = forgeState;
     const bonus = Number(f.bonus) || 0;
@@ -612,7 +671,7 @@ function addForgedItem() {
     if (r.talents.length) item.talents = r.talents.map(t => t.name);
     if (f.returning && f.kind === 'weapon') item.returning = true;
     if (r.intel) item.intelligence = r.intel;
-    addCatalogueItemToInventory(item);
+    return addCatalogueItemToInventory(item, { place: catPlace() });
 }
 
 
@@ -764,30 +823,30 @@ function addForgedMiscItem() {
     if (Number(f.saveBonus)) item.saveBonus = Number(f.saveBonus);
     if (f.ability) item.abilityMods = [{ ability: f.ability, mode: f.abilityMode === 'set' ? 'set' : 'add', value: Number(f.abilityValue) || 0 }];
     if (f.carried) item.activeWhileCarried = true;
-    addCatalogueItemToInventory(item);
+    const idx = addCatalogueItemToInventory(item, { place: catPlace() });
     if ((item.abilityMods || item.acBonus || item.saveBonus) && f.carried && typeof afterEquipChange === 'function') afterEquipChange();
+    return idx;
 }
 
 // Add from the catalogue (or forge) and equip at once.
 async function catalogueEquip(kind, id) {
     if (!currentCharacter) return;
     if (!Array.isArray(currentCharacter.inventory)) currentCharacter.inventory = [];
-    const before = currentCharacter.inventory.length;
-    if (kind === 'weapon') addWeaponFromCatalogue(id);
-    else if (kind === 'armour') addArmourFromCatalogue(id);
-    else if (kind === 'magic') addMagicFromCatalogue(id);
-    else if (kind === 'forge') addForgedItem();
+    const quiet = { quiet: true };
+    let idx = -1;
+    if (kind === 'weapon') idx = addWeaponFromCatalogue(id, quiet);
+    else if (kind === 'armour') idx = addArmourFromCatalogue(id, quiet);
+    else if (kind === 'magic') idx = addMagicFromCatalogue(id, null, quiet);
+    else if (kind === 'forge') idx = addForgedItem();
     const inv = currentCharacter.inventory;
-    let idx = inv.length > before ? inv.length - 1 : inv.map(i => i.catalogId).lastIndexOf(kind === 'weapon' ? 'weapon_' + id : id);
-    if (idx < 0) return;
+    if (!(idx >= 0) || !inv[idx]) return;
     const name = inv[idx].name;
     const ok = await equipInventoryItem(idx);
-    const msg = document.getElementById('catalogue-msg');
-    if (msg) msg.textContent = ok ? `Equipped ${name}.` : `Added ${name} to the backpack (not equipped).`;
+    catalogueToast(ok ? `Equipped ${name}` : `Added ${name} to ${catPlaceName(inv[idx]?.location || 'Backpack')} (not equipped)`);
 }
 
 Object.assign(window, {
-    catalogueEquip,
+    catalogueEquip, catalogueAdd, setCataloguePlace,
     openCatalogue, closeCatalogue, setCatalogueTab, setCatalogueQuery, setCatalogueGroup, toggleCatalogueRow,
     addGearFromCatalogue, addWeaponFromCatalogue, addArmourFromCatalogue, addMountFromCatalogue, addMagicFromCatalogue,
     openForgeFor, openForgeNamed, forgeSet, forgeToggle, addForgedItem, parseCostGp, fmtCost,

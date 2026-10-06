@@ -52,7 +52,8 @@ function syncWeaponFeatsUI() {
     window.safeSetText('wf-spent-badge', spent);
     const availBadge = document.getElementById('wf-avail-badge');
     if (availBadge) {
-        availBadge.innerText = available;
+        availBadge.innerText = available < 0 ? `${-available} overspent` : available;
+        availBadge.title = available < 0 ? `More weapon feats are spent than you have: ${-available} too many` : (inTraining ? 'One feat is held by the training in progress' : '');
         availBadge.style.color = available < 0 ? 'var(--danger)' : (available === 0 ? 'var(--text-muted)' : 'var(--good)');
     }
 
@@ -161,8 +162,9 @@ function renderWeaponFeatsGrid() {
         const currRankIdx = rankOrder.indexOf(item.rank);
 
         const RANK_NAMES = { N: 'Unskilled', B: 'Basic', S: 'Skilled', E: 'Expert', M: 'Master', G: 'Grand Master' };
+        const prevName = currRankIdx > 0 ? RANK_NAMES[rankOrder[currRankIdx - 1]] : '';
         const downBtnHtml = currRankIdx > 0
-            ? `<button type="button" class="icon-btn" onclick="downgradeWeaponFeat(${index})" title="Lower rank" aria-label="Lower ${escapeHtml(weaponData.name)} rank">${getIcon('down', 15)}</button>`
+            ? `<button type="button" class="icon-btn" onclick="downgradeWeaponFeat(${index})" title="Lower to ${prevName} (gives back its feats)" aria-label="Lower ${escapeHtml(weaponData.name)} to ${prevName}">${getIcon('down', 15)}</button>`
             : '';
         const direct = typeof trainingDirectEdit === 'function' ? trainingDirectEdit() : true;
         const trainingThis = window.currentCharacter.weaponTraining?.active?.weaponId === item.weaponId;
@@ -170,9 +172,9 @@ function renderWeaponFeatsGrid() {
         const nextName = canRaise ? RANK_NAMES[rankOrder[currRankIdx + 1]] : '';
         // Two ways up: train (Dark Dungeons Chapter 11) or just set the rank.
         const trainBtn = canRaise && !direct && !trainingThis
-            ? `<button type="button" class="icon-btn" onclick="upgradeWeaponFeat(${index})" title="Train to ${nextName}" aria-label="Train ${escapeHtml(weaponData.name)} to ${nextName}">${getIcon('up', 15)}</button>` : '';
-        const directBtn = canRaise
-            ? `<button type="button" class="icon-btn" onclick="upgradeWeaponFeat(${index}, true)" title="Raise to ${nextName} without training" aria-label="Raise ${escapeHtml(weaponData.name)} to ${nextName} without training">+1</button>` : '';
+            ? `<button type="button" class="btn btn-sm wpn-rank-btn" onclick="upgradeWeaponFeat(${index})" title="Begin training to ${nextName} (uses a free weapon feat; takes weeks)" aria-label="Train ${escapeHtml(weaponData.name)} to ${nextName}">Train</button>` : '';
+        const directBtn = canRaise && !trainingThis
+            ? `<button type="button" class="btn btn-sm wpn-rank-btn" onclick="upgradeWeaponFeat(${index}, true)" title="Raise to ${nextName} now, without training" aria-label="Set ${escapeHtml(weaponData.name)} to ${nextName} without training">Set rank</button>` : '';
         const upBtnHtml = (trainingThis ? `<span class="tag" style="color: var(--arcane);" title="In training">training</span>` : trainBtn) + directBtn;
 
         const isAllowedByClass = canCharacterUseWeapon(weaponData, window.currentCharacter);
@@ -278,6 +280,7 @@ function clearWeaponModalError() {
 function handleWeaponModalBackdrop(event) {
     if (event.target && event.target.id === 'weapon-modal') closeAddWeaponModal();
 }
+if (typeof registerModalCloser === 'function') registerModalCloser('weapon-modal', closeAddWeaponModal);
 
 function closeAddWeaponModal() {
     const modal = document.getElementById('weapon-modal');
@@ -285,12 +288,29 @@ function closeAddWeaponModal() {
     clearWeaponModalError();
 }
 
+// "Train it" (a new weapon is trained to Basic) or "Add directly" at the chosen rank.
+let weaponAddMode = 'direct';
+function setWeaponAddMode(mode) {
+    weaponAddMode = mode === 'train' ? 'train' : 'direct';
+    const train = weaponAddMode === 'train';
+    const r = document.getElementById(train ? 'weapon-mode-train' : 'weapon-mode-direct'); if (r) r.checked = true;
+    const rankGroup = document.getElementById('weapon-rank-group'); if (rankGroup) rankGroup.style.display = train ? 'none' : '';
+    const trainBtn = document.getElementById('weapon-modal-train'); if (trainBtn) trainBtn.style.display = train ? '' : 'none';
+    const saveBtn = document.getElementById('weapon-modal-save'); if (saveBtn) saveBtn.style.display = train ? 'none' : '';
+    updateWeaponCostPreview();
+}
+function weaponFeatsText(n) { return `${n} weapon feat${n === 1 ? '' : 's'}`; }
 function updateWeaponCostPreview() {
     const rankSelect = document.getElementById('weapon-rank-select');
     const costDisplay = document.getElementById('weapon-cost-preview');
     if (!rankSelect || !costDisplay) return;
-    const cost = WEAPON_FEAT_COST[rankSelect.value] || 1;
-    costDisplay.innerText = `Feat Cost: ${cost} slot(s)`;
+    const training = weaponAddMode === 'train' && document.getElementById('weapon-mode-group')?.style.display !== 'none';
+    const cost = training ? 1 : (WEAPON_FEAT_COST[rankSelect.value] || 1);
+    const free = window.currentCharacter ? freeWeaponFeats(window.currentCharacter) : 0;
+    const freeText = free < 0 ? `${weaponFeatsText(-free).replace('weapon ', '')} overspent already`
+        : free >= cost ? `${free} free` : `only ${free} free`;
+    costDisplay.textContent = `Costs ${weaponFeatsText(cost)}${training ? ' (Basic)' : ''} · ${freeText}`;
+    costDisplay.style.color = free < cost ? 'var(--danger)' : 'var(--accent-gold)';
 }
 
 function canCharacterUseWeapon(weaponData, character) {
@@ -385,18 +405,28 @@ function openAddWeaponModal() {
     clearWeaponModalError();
     populateWeaponSelectOptions();
     updateRankSelectOptions();
-    // Above 1st level: "Begin Training" (to Basic, or the next rank) or "Add Directly" at the chosen rank.
+    // Above 1st level: train the weapon (to Basic) or add it directly at the chosen rank.
     const training = (Number(window.currentCharacter?.level) || 1) > 1 && typeof trainingDirectEdit === 'function' && !trainingDirectEdit();
-    const trainBtn = document.getElementById('weapon-modal-train');
-    if (trainBtn) trainBtn.style.display = training ? '' : 'none';
+    const group = document.getElementById('weapon-mode-group');
+    if (group) group.style.display = training ? '' : 'none';
     const saveBtn = document.getElementById('weapon-modal-save');
-    if (saveBtn) saveBtn.textContent = training ? 'Add Directly' : 'Learn Weapon';
+    if (saveBtn) saveBtn.textContent = training ? 'Add weapon' : 'Learn weapon';
     const hint = document.getElementById('weapon-modal-hint');
-    if (hint) hint.textContent = training ? 'Begin Training: a new weapon trains to Basic, a known one to its next rank. Add Directly: set the chosen rank now, without training.' : '';
+    if (hint) { hint.textContent = training ? '' : 'At 1st level your starting feats go straight to Basic.'; hint.style.display = training ? 'none' : ''; }
+    setWeaponAddMode(training ? 'train' : 'direct');
     modal.style.display = 'flex';
 }
 
-function saveCharacterWeapon(directly = false) {
+// Weapon feats not yet spent (a training in progress holds one).
+function freeWeaponFeats(ch) {
+    return getTotalWeaponFeats(ch) - getSpentWeaponFeats(ch) - (ch.weaponTraining?.active ? 1 : 0);
+}
+async function confirmFeatCost(ch, cost) {
+    const free = freeWeaponFeats(ch);
+    if (cost <= 0 || free >= cost) return true;
+    return sheetConfirm(`That needs ${cost} weapon feat${cost > 1 ? 's' : ''}, but only ${Math.max(0, free)} ${free === 1 ? 'is' : 'are'} free. Do it anyway (your feats will show as overspent)?`, 'Do it anyway');
+}
+async function saveCharacterWeapon(directly = false) {
     if (!window.currentCharacter) return;
     clearWeaponModalError();
 
@@ -426,11 +456,13 @@ function saveCharacterWeapon(directly = false) {
     }
 
     const existing = window.currentCharacter.weaponFeats.find(w => w.weaponId === weaponId);
+    if (existing && isLevel1) {
+        showWeaponModalError('First-level characters cannot spend multiple feats on the same weapon.');
+        return;
+    }
+    const featCost = (WEAPON_FEAT_COST[rank] || 0) - (existing ? (WEAPON_FEAT_COST[existing.rank] || 0) : 0);
+    if (!(await confirmFeatCost(window.currentCharacter, featCost))) return;
     if (existing) {
-        if (isLevel1) {
-            showWeaponModalError('First-level characters cannot spend multiple feats on the same weapon.');
-            return;
-        }
         existing.rank = rank;
     } else {
         window.currentCharacter.weaponFeats.push({ weaponId, rank, isEquipped: true });
@@ -443,19 +475,21 @@ function saveCharacterWeapon(directly = false) {
 
 async function removeWeaponFeat(index) {
     if (!window.currentCharacter || !window.currentCharacter.weaponFeats) return;
-    const isConfirmed = await sheetConfirm('Remove this weapon feat?', 'Remove');
+    const wf = window.currentCharacter.weaponFeats[index];
+    const wname = wf ? (window.GlobalWeaponsDatabase?.[wf.weaponId]?.name || wf.weaponId) : '';
+    const isConfirmed = await sheetConfirm(wname ? `Untrain ${wname}? Its weapon feats become free again.` : 'Remove this weapon feat?', 'Untrain');
     if (!isConfirmed) return;
     window.currentCharacter.weaponFeats.splice(index, 1);
     if (typeof window.debouncedSave === 'function') window.debouncedSave();
     syncWeaponFeatsUI();
 }
 
-function upgradeWeaponFeat(index, directly = false) {
+async function upgradeWeaponFeat(index, directly = false) {
     if (!window.currentCharacter || !Array.isArray(window.currentCharacter.weaponFeats)) return;
     const item = window.currentCharacter.weaponFeats[index];
     if (!item) return;
     if ((Number(window.currentCharacter.level) || 1) === 1) {
-        alert('Characters of 1st level cannot advance weapons beyond Basic proficiency!');
+        await sheetAlert('At 1st level weapons stay at Basic.');
         return;
     }
     const rankProgression = { 'B': 'S', 'S': 'E', 'E': 'M', 'M': 'G' };
@@ -465,7 +499,9 @@ function upgradeWeaponFeat(index, directly = false) {
         return;
     }
     if (rankProgression[item.rank]) {
-        item.rank = rankProgression[item.rank];
+        const next = rankProgression[item.rank];
+        if (!(await confirmFeatCost(window.currentCharacter, (WEAPON_FEAT_COST[next] || 0) - (WEAPON_FEAT_COST[item.rank] || 0)))) return;
+        item.rank = next;
         if (typeof window.debouncedSave === 'function') window.debouncedSave();
         syncWeaponFeatsUI();
     }
@@ -483,12 +519,6 @@ function downgradeWeaponFeat(index) {
     }
 }
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        const modal = document.getElementById('weapon-modal');
-        if (modal && modal.style.display === 'flex') closeAddWeaponModal();
-    }
-});
 
 window.WEAPON_FEAT_COST = WEAPON_FEAT_COST;
 window.setTargetOpponentMode = setTargetOpponentMode;
@@ -502,6 +532,7 @@ window.saveCharacterWeapon = saveCharacterWeapon;
 window.handleWeaponModalBackdrop = handleWeaponModalBackdrop;
 window.populateWeaponSelectOptions = populateWeaponSelectOptions;
 window.updateWeaponCostPreview = updateWeaponCostPreview;
+window.setWeaponAddMode = setWeaponAddMode;
 window.removeWeaponFeat = removeWeaponFeat;
 window.upgradeWeaponFeat = upgradeWeaponFeat;
 window.downgradeWeaponFeat = downgradeWeaponFeat;

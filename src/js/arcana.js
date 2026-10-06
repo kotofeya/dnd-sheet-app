@@ -223,7 +223,31 @@ function resetCraftUses(period) {
     craft.abilities.forEach(ab => { if (resets.includes(CRAFT_CIRCLES[ab.circle].per)) delete a.craft.uses[ab.id]; });
     a.craft.runesToday = 0;
     arcanaSave();
+    if (typeof sheetToast === 'function') sheetToast(`${{ day: 'Daily', week: 'Daily and weekly', month: 'All' }[period] || 'Daily'} craft abilities are ready again. The calendar did not move.`);
 }
+// Called by the calendar when time passes (after the clock has moved): a new day refills the daily
+// craft abilities and runes used today; crossing into a new week (7 days) or month (28 days) also
+// refills the weekly and monthly ones. Returns the periods reset, e.g. ['day', 'week'].
+function arcanaTimePassed(days) {
+    const n = Number(days) || 0;
+    if (!currentCharacter || n <= 0) return [];
+    const a = arcanaState(); const craft = currentCraft();
+    if (!a || !craft) return [];
+    const DAY = 86400;
+    let nowDay = null;
+    try { if (typeof calendarState === 'function') nowDay = Math.floor(Number(calendarState().t) / DAY); } catch (e) { nowDay = null; }
+    const crossed = len => n >= len || (Number.isFinite(nowDay) && Math.floor(nowDay / len) !== Math.floor((nowDay - Math.ceil(n)) / len));
+    if (n < 1 && !crossed(1)) return [];
+    const periods = ['day'];
+    if (crossed(7)) periods.push('week');
+    if (crossed(28)) periods.push('month');
+    const hadUses = Object.keys(a.craft.uses).length || a.craft.runesToday;
+    craft.abilities.forEach(ab => { if (periods.includes(CRAFT_CIRCLES[ab.circle].per)) delete a.craft.uses[ab.id]; });
+    a.craft.runesToday = 0;
+    if (hadUses) arcanaSave(); else if (typeof debouncedSave === 'function') debouncedSave();
+    return periods;
+}
+window.arcanaTimePassed = arcanaTimePassed;
 function adjustRunesToday(delta) {
     const a = arcanaState(); if (!a) return;
     a.craft.runesToday = Math.max(0, (Number(a.craft.runesToday) || 0) + delta);
@@ -344,7 +368,7 @@ function renderCraftCard() {
                         `<button type="button" class="cast-pip${i < used ? ' spent' : ''}" onclick="toggleCraftUse('${ab.id}', ${i})" title="${i < used ? 'Used — click to un-mark' : 'Ready — click when used'}" aria-label="${escapeHtml(ab.name)} use ${i + 1}"></button>`).join('');
                     status = `<span class="arc-pct" title="${escapeHtml(s.notes.join('; ') || `${circle.base}% + 1% per level`)}">${s.pct}%</span>
                         <span class="cast-pips">${pips}</span><span class="eyebrow">${ab.uses ? `${ab.uses} a day` : circle.usesLabel}</span>
-                        <button type="button" class="icon-btn danger" onclick="forgetCraftAbility('${ab.id}')" title="Remove" aria-label="Remove ${escapeHtml(ab.name)}">${getIcon('close', 13)}</button>`;
+                        <button type="button" class="icon-btn danger" onclick="forgetCraftAbility('${ab.id}')" title="Remove ${escapeHtml(ab.name)}" aria-label="Remove ${escapeHtml(ab.name)}">${getIcon('close', 13)}</button>`;
                 } else if (n === 5) {
                     const ready = craftCircleComplete(craft, learned, 4) && level >= circle.level && !craftPendingMastery(craft, learned);
                     status = ready ? `<button type="button" class="btn btn-sm" onclick="gainCraftByDuel('${ab.id}')">Defeated the High Master</button>`
@@ -398,11 +422,12 @@ function renderCraftCard() {
                 <span>Disciple level <strong>${toRoman(level)}</strong></span>
             </div>
             <div class="arc-actions">
-                <span class="eyebrow">Uses</span>
-                <button type="button" class="btn btn-sm" onclick="resetCraftUses('day')" title="Daily abilities${craft.runeLimit ? ' and runes used today' : ''} are ready again">New day</button>
-                <button type="button" class="btn btn-sm" onclick="resetCraftUses('week')">New week</button>
-                <button type="button" class="btn btn-sm" onclick="resetCraftUses('month')">New month</button>
+                <span class="eyebrow">Refill uses (no time passes)</span>
+                <button type="button" class="btn btn-sm" onclick="resetCraftUses('day')" title="Daily abilities${craft.runeLimit ? ' and runes used today' : ''} are ready again; the calendar does not move">Daily</button>
+                <button type="button" class="btn btn-sm" onclick="resetCraftUses('week')" title="Daily and weekly abilities are ready again; the calendar does not move">Daily and weekly</button>
+                <button type="button" class="btn btn-sm" onclick="resetCraftUses('month')" title="Every ability is ready again; the calendar does not move">All</button>
             </div>
+            <p class="sub-caption" style="margin: 4px 0 0;">Moving the calendar (+ Day, Rest a day) refills them by itself: daily each day, weekly at each new week, monthly at each new month.</p>
             ${studyHtml}${masteryHtml}${runesHtml}
             ${circlesHtml}
             ${taughtHtml}
@@ -708,7 +733,7 @@ function resolveResearch(id, success) {
         const why = p.kind === 'spell'
             ? `${p.isNew ? 'Researched a new' : 'Rediscovered a common'} ${ordinal(clampInt(p.level, 1, 9, 1))}-level spell: ${what}`
             : `${success ? 'Enchanted' : 'Failed to enchant'} ${what} (${fmtDc(calc.spentForXp)} spent${success ? '' : ', 1/10'})`;
-        p.xpAwarded = (Number(p.xpAwarded) || 0) + (awardRawXp(xp, why) || xp);
+        p.xpAwarded = (Number(p.xpAwarded) || 0) + (Number(awardRawXp(xp, why)) || 0);
     }
     arcanaSave();
     if (typeof renderSpellbooks === 'function') renderSpellbooks();
@@ -750,7 +775,7 @@ async function editLibraryBook(id) {
     const res = await notesFormModal({
         title: book ? 'Edit book' : 'Add a book to the library',
         canDelete: Boolean(book),
-        values: book ? { ...book, trueValue: book.trueValue ?? '' } : { pay: 'no' },
+        values: book ? { ...book, trueValue: book.trueValue ?? '', studiedState: book.studied ? 'yes' : 'no' } : { pay: 'no' },
         fields: [
             { key: 'title', label: 'Title', wide: true, max: 120, placeholder: 'e.g. Codex of the Radiant Flame' },
             { key: 'subject', label: 'Subject', max: 80, placeholder: 'e.g. fire magic, necromancy, history' },
@@ -759,6 +784,7 @@ async function editLibraryBook(id) {
             { key: 'price', label: 'Price paid (dc)', placeholder: '0' },
             ...(book ? [] : [{ key: 'pay', label: 'Pay the price now', type: 'select', options: [{ value: 'no', label: 'No (already paid / found)' }, { value: 'yes', label: 'Yes, from my purse' }] }]),
             { key: 'trueValue', label: 'True value, once studied (dc)', placeholder: 'the DM reveals it' },
+            ...(book && book.studied ? [{ key: 'studiedState', label: 'Studied', type: 'select', options: [{ value: 'yes', label: 'Yes, studied' }, { value: 'no', label: 'Mark as not studied' }] }] : []),
             { key: 'notes', label: 'Notes (wards, appearance, contents…)', type: 'textarea', rows: 3, wide: true },
         ],
         extraHtml: `<p class="sub-caption arc-note">A book found or offered for sale is worth 10 dc × d100. Your Appraisal Score is ${appraisal}% ((Int + level) × 2): the DM rolls it in secret; on a failure your estimate is off by the difference in percent (even: too high, odd: too low). Studying a book takes a day per 100 dc of its true value and reveals that value. GAZ3 p. 66.</p>`,
@@ -780,6 +806,10 @@ async function editLibraryBook(id) {
     if (!book && res.pay === 'yes' && data.price > 0) {
         if (typeof holdingsPay !== 'function' || !(await holdingsPay(data.price))) return;
     }
+    if (book && book.studied && res.studiedState === 'no') {
+        if (!(await sheetConfirm(`Mark “${data.title}” as not studied? Its value counts as the one you believe again until you study it.`, 'Mark as not studied'))) return;
+        data.studied = false;
+    }
     if (book) Object.assign(book, data);
     else {
         a.library.books.push({ id: 'bk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...data, studied: false, added: new Date().toISOString() });
@@ -790,7 +820,7 @@ async function editLibraryBook(id) {
 async function studyLibraryBook(id) {
     const a = arcanaState(); if (!a) return;
     const book = a.library.books.find(b => b.id === id); if (!book) return;
-    if (book.studied) { book.studied = false; arcanaSave(); return; }
+    if (book.studied) return;          // un-studying is in the book's edit window
     const res = await notesFormModal({
         title: `Studied: ${book.title}`,
         values: { trueValue: book.trueValue !== '' && book.trueValue != null ? book.trueValue : book.value },
@@ -817,7 +847,9 @@ function renderLibraryBooks(lib) {
                 ${b.notes ? `<div class="sub-caption lib-book-notes">${escapeHtml(b.notes)}</div>` : ''}
             </div>
             <span class="lib-book-val" title="${unsure ? 'The value you believe; studying the book reveals its true value' : 'True value'}">${fmtDc(shown)}${unsure ? '?' : ''}</span>
-            <button type="button" class="btn btn-sm${b.studied ? '' : ' btn-accent'}" onclick="studyLibraryBook('${b.id}')" title="${b.studied ? 'Studied: click to mark as not studied' : `Study it: ${bookStudyDays(b)} day(s)`}">${b.studied ? `${getIcon('check', 12)} Studied` : `Study (${bookStudyDays(b)} d)`}</button>
+            ${b.studied
+                ? `<span class="tag lib-studied" title="Studied: its true value is known. To undo, open the book (click its title).">${getIcon('check', 11)} Studied</span>`
+                : `<button type="button" class="btn btn-sm btn-accent" onclick="studyLibraryBook('${b.id}')" title="Study it: about ${bookStudyDays(b)} day${bookStudyDays(b) > 1 ? 's' : ''}">Study (${bookStudyDays(b)} d)</button>`}
         </div>`;
     }).join('');
     return `<div class="arc-panel lib-books">
@@ -975,13 +1007,13 @@ function renderResearchCard() {
         </div>
         <div class="arc-fields">
             <label class="arc-check"><input type="checkbox" ${lib.own ? 'checked' : ''} onchange="setLibrary('own', this.checked)"> I own a library</label>
+            <label class="arc-check" title="GAZ3 p. 60: XP for discovering spells and enchanting items"><input type="checkbox" ${wizardXpOn() ? 'checked' : ''} onchange="setWizardXp(this.checked)"> Award GAZ3 wizard XP</label>
             ${lib.own ? `<label class="arc-field"><span class="eyebrow">${lib.books.length ? 'Other library value (besides the books below)' : 'Library value'}</span><input type="number" min="0" class="stat-input arc-input" value="${Number(lib.value) || 0}" onchange="setLibrary('value', this.value)"></label>` : ''}
         </div>
         ${lib.own ? renderLibraryBooks(lib) : ''}
         <div class="tally" style="margin: 10px 0;">
             ${lib.own ? `<span>Supports research up to <strong>${(() => { let L = 0; for (let i = 1; i <= 9; i++) if (libraryTotal(lib) >= libraryMinimum(i)) L = i; return L ? ordinal(L) + ' level' : 'none yet'; })()}</strong></span>` : '<span>Using a public or princely library (no bonus)</span>'}
             <span>Book appraisal <strong>${appraisal}%</strong></span>
-            <label class="arc-check" title="GAZ3 p. 60: XP for discovering spells and enchanting items"><input type="checkbox" ${wizardXpOn() ? 'checked' : ''} onchange="setWizardXp(this.checked)"> Award GAZ3 wizard XP</label>
             <span>Base chance <strong>(${arcIntScore()} + ${level}) × 2 = ${(arcIntScore() + level) * 2}%</strong></span>
         </div>
         ${active.map(renderResearchRow).join('') || '<div class="ledger-note">No research under way. Add a spell, magic item, weapon or armour project.</div>'}
@@ -1202,8 +1234,10 @@ function resolveMentorSpell(id, learned) {
     if (typeof renderSpellbooks === 'function') renderSpellbooks();
     arcanaSave();
 }
-function removeMentorSpell(id) {
+async function removeMentorSpell(id) {
     const a = arcanaState(); if (!a) return;
+    const sp = a.mentor.spells.find(x => x.id === id); if (!sp) return;
+    if (!(await sheetConfirm(`Remove ${sp.name} from the spells taught by your mentor?${sp.status === 'learned' ? ' It stays in your spellbook.' : ''}`, 'Remove'))) return;
     a.mentor.spells = a.mentor.spells.filter(x => x.id !== id);
     arcanaSave();
 }
@@ -1221,7 +1255,7 @@ function renderMentorCard() {
             ${sp.status === 'studying'
                 ? `<button type="button" class="btn btn-sm btn-accent" onclick="resolveMentorSpell('${sp.id}', true)">Learned</button><button type="button" class="btn btn-sm" onclick="resolveMentorSpell('${sp.id}', false)">Failed</button>`
                 : `<span class="tag" style="color: var(--${sp.status === 'learned' ? 'good' : 'danger'});">${sp.status === 'learned' ? 'Learned' : 'Failed'}</span>`}
-            <button type="button" class="icon-btn danger" onclick="removeMentorSpell('${sp.id}')" aria-label="Remove">${getIcon('close', 13)}</button>
+            <button type="button" class="icon-btn danger" onclick="removeMentorSpell('${sp.id}')" title="Remove ${escapeHtml(sp.name)}" aria-label="Remove ${escapeHtml(sp.name)}">${getIcon('close', 13)}</button>
         </div>`).join('');
     return `
     <div class="card" id="arcana-mentor-card">
@@ -1242,8 +1276,8 @@ function renderMentorCard() {
         <div class="arc-sub-head"><span class="eyebrow eyebrow-strong">Spells from the mentor</span><span class="eyebrow">gift 1,000 gp per spell level · 1 week + 1 day per level, then the learning check</span></div>
         <div class="arc-book">${rows || '<div class="ledger-note">No spells taught yet.</div>'}</div>
         <div class="arc-actions">
-            <input type="text" id="mentor-spell-name" class="stat-input arc-input" placeholder="Spell name" style="flex: 1;">
-            <input type="number" id="mentor-spell-level" class="stat-input arc-input" min="1" max="${Math.max(1, maxSpell)}" value="1" style="max-width: 80px;" title="Spell level">
+            <input type="text" id="mentor-spell-name" class="stat-input arc-input" placeholder="Spell name" aria-label="Spell name" style="flex: 1;">
+            <input type="number" id="mentor-spell-level" class="stat-input arc-input" min="1" max="${Math.max(1, maxSpell)}" value="1" style="max-width: 80px;" title="Spell level" aria-label="Spell level">
             <button type="button" class="btn btn-sm" onclick="addMentorSpell()">Begin learning</button>
         </div>
         ${level < 9 ? `<p class="sub-caption arc-note">Writing a spell without your mentor before magic-user level 9 risks a flawed formula: ${[1, 2, 3, 4, 5, 6].map(l => `${l * 5}% at level ${l}`).join(', ')}. A flawed spell is only found out when first cast.</p>` : ''}

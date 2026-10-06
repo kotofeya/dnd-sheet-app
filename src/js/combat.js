@@ -126,6 +126,13 @@ function updateCombatVitals() {
         : Math.floor(baseTurnSpeed / 3);
     const turnSpeed = encounterSpeed * 3;
 
+    // The load is set by what the Inventory says is carried: shown as text, not a choice.
+    const loadText = document.getElementById('movement-load-text');
+    if (loadText && loadSel) {
+        const opt = loadSel.options[loadSel.selectedIndex];
+        loadText.textContent = opt ? opt.textContent : `${baseTurnSpeed}'`;
+    }
+
     window.safeSetText('speed-explore', `${turnSpeed}'`);
     window.safeSetText('speed-encounter', `${encounterSpeed}'`);
     window.safeSetText('speed-running', `${turnSpeed}'`);
@@ -142,6 +149,108 @@ function updateCombatVitals() {
         } else {
             flyEl.style.display = 'none';
         }
+    }
+    renderStatusStrip();
+}
+
+// ---- Status strip (under the tab bar, on every tab) and Damage / Heal -----------------------
+// Spells left come from window.spellsLeftToday() ({ left, total } or null), provided by the spells
+// module, which also dispatches 'sheet:spells-changed' on document when casting or resting.
+function statusStripBuild(strip) {
+    strip.innerHTML = `
+        <span class="ss-item" title="Hit points: current / maximum">
+            <span class="ss-label">HP</span>
+            <span class="ss-value" id="ss-hp-cur">0</span><span aria-hidden="true">/</span><span class="ss-value" id="ss-hp-max" style="font-weight: 600;">0</span>
+            <span class="ss-temp" id="ss-hp-temp"></span>
+        </span>
+        <span class="ss-adjust" role="group" aria-label="Damage or heal">
+            <input type="number" id="ss-amount" class="hp-adjust-input" min="0" placeholder="0" aria-label="Amount of damage or healing">
+            <button type="button" class="btn btn-sm hp-dmg-btn" onclick="hpApplyAmount('damage', 'ss-amount')" title="Takes temporary hit points first, then current hit points">Damage</button>
+            <button type="button" class="btn btn-sm hp-heal-btn" onclick="hpApplyAmount('heal', 'ss-amount')" title="Restores current hit points up to the maximum">Heal</button>
+        </span>
+        <span class="ss-sep" aria-hidden="true"></span>
+        <span class="ss-item" title="Armour class (lower is better)"><span class="ss-label">AC</span><span class="ss-value" id="ss-ac">9</span></span>
+        <span class="ss-item" title="Roll needed to hit AC 0"><span class="ss-label">THAC0</span><span class="ss-value" id="ss-thac0">19</span></span>
+        <span class="ss-item" id="ss-spells-wrap" style="display: none;" title="Spell slots not yet cast today">
+            <span class="ss-sep" aria-hidden="true"></span><span class="ss-label">Spells left today</span><span class="ss-value" id="ss-spells">0</span>
+        </span>`;
+    strip.dataset.built = '1';
+}
+
+function renderStatusStrip() {
+    const strip = document.getElementById('status-strip');
+    if (!strip) return;
+    const char = window.currentCharacter;
+    if (!char) { strip.style.display = 'none'; return; }
+    if (!strip.dataset.built) statusStripBuild(strip);
+    strip.style.display = '';
+    const num = id => Number(document.getElementById(id)?.value) || 0;
+    const cur = num('hp-current'), max = num('hp-max'), temp = num('hp-temp');
+    const curEl = document.getElementById('ss-hp-cur');
+    if (curEl) {
+        curEl.textContent = String(cur);
+        curEl.classList.toggle('ss-down', cur <= 0);
+        curEl.classList.toggle('ss-low', cur > 0 && max > 0 && cur <= max / 2);
+    }
+    window.safeSetText('ss-hp-max', String(max));
+    window.safeSetText('ss-hp-temp', temp > 0 ? `+${temp} temp` : '');
+    window.safeSetText('ss-ac', document.getElementById('combat-ac')?.value ?? '');
+    window.safeSetText('ss-thac0', document.getElementById('combat-thac0')?.value ?? '');
+    const wrap = document.getElementById('ss-spells-wrap');
+    if (wrap) {
+        let s = null;
+        try { s = typeof window.spellsLeftToday === 'function' ? window.spellsLeftToday() : null; } catch (e) { console.error(e); s = null; }
+        const ok = s && Number.isFinite(Number(s.left)) && Number(s.total) > 0;
+        wrap.style.display = s ? '' : 'none';
+        if (s && !ok) { window.safeSetText('ss-spells', 'none prepared'); wrap.title = 'No spells prepared yet (Class Abilities tab)'; }
+        if (ok) {
+            window.safeSetText('ss-spells', `${Number(s.left)} of ${Number(s.total)}`);
+            wrap.title = `${Number(s.left)} spell slot${Number(s.left) === 1 ? '' : 's'} not yet cast today, of ${Number(s.total)}`;
+        }
+    }
+}
+document.addEventListener('sheet:spells-changed', () => renderStatusStrip());
+
+// Damage takes temporary hit points first, then current hit points; healing stops at the maximum.
+function hpApplyAmount(kind, inputId) {
+    const char = window.currentCharacter;
+    const input = document.getElementById(inputId);
+    if (!char || !input) return;
+    const amount = Math.trunc(Number(input.value));
+    if (!Number.isFinite(amount) || amount <= 0) {
+        input.focus();
+        if (typeof sheetToast === 'function') sheetToast('Type how many hit points first.', { ms: 3000 });
+        return;
+    }
+    const curEl = document.getElementById('hp-current'), tempEl = document.getElementById('hp-temp');
+    const max = Number(document.getElementById('hp-max')?.value) || 0;
+    const before = { cur: Number(curEl?.value) || 0, temp: Math.max(0, Number(tempEl?.value) || 0) };
+    let cur = before.cur, temp = before.temp, msg;
+    if (kind === 'damage') {
+        const fromTemp = Math.min(temp, amount);
+        temp -= fromTemp;
+        cur -= amount - fromTemp;
+        msg = `${amount} damage${fromTemp ? ` (${fromTemp} from temporary hit points)` : ''}: ${cur} / ${max} HP.`;
+    } else {
+        const healed = Math.max(0, Math.min(max, cur + amount) - cur);
+        cur += healed;
+        msg = healed ? `Healed ${healed}${healed < amount ? ` (${amount - healed} over the maximum)` : ''}: ${cur} / ${max} HP.` : `Already at full hit points (${cur} / ${max}).`;
+    }
+    const apply = (c, t) => {
+        window.safeSetVal('hp-current', c);
+        window.safeSetVal('hp-temp', t);
+        if (!char.hitPoints) char.hitPoints = {};
+        char.hitPoints.current = c;
+        if (!char.combatDetails) char.combatDetails = {};
+        char.combatDetails.tempHp = t;
+        updateCombatVitals();
+        if (typeof window.debouncedSave === 'function') window.debouncedSave();
+    };
+    apply(cur, temp);
+    input.value = '';
+    if (typeof sheetToast === 'function') {
+        const changed = cur !== before.cur || temp !== before.temp;
+        sheetToast(msg, changed ? { action: 'Undo', onAction: () => { if (window.currentCharacter === char) apply(before.cur, before.temp); } } : {});
     }
 }
 
@@ -358,5 +467,7 @@ function renderCombatManoeuvres() {
 
 window.getHpFormula = getHpFormula;
 window.updateCombatVitals = updateCombatVitals;
+window.renderStatusStrip = renderStatusStrip;
+window.hpApplyAmount = hpApplyAmount;
 window.getAttacksPerRound = getAttacksPerRound;
 window.renderCombatManoeuvres = renderCombatManoeuvres;

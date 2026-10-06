@@ -67,7 +67,7 @@ function renderChronicle() {
                     <div class="chronicle-text">${escapeHtml(e.text)}</div>
                     <div class="chronicle-meta">${escapeHtml(meta.label)}${e.gameDate ? ` · <span class="chronicle-gamedate" title="In-game date">${escapeHtml(e.gameDate)}</span>` : ''} · ${escapeHtml(date)} ${escapeHtml(time)}</div>
                 </div>
-                <button type="button" class="icon-btn danger" onclick="deleteChronicleEntry('${e.id}')" title="Delete entry (does not change your totals)" aria-label="Delete entry">${getIcon('close', 14)}</button>
+                <button type="button" class="icon-btn danger" onclick="deleteChronicleEntry('${String(e.id).replace(/[^\w-]/g, '')}')" title="Delete entry (does not change your totals)" aria-label="Delete entry">${getIcon('close', 14)}</button>
             </div>`;
     }).join('');
 }
@@ -117,86 +117,222 @@ document.addEventListener('change', e => {
 });
 
 // ---------------------------------------------------------------------------
-// Level-up record
+// Level-up walkthrough: hit points, what changes, and what to do next
 // ---------------------------------------------------------------------------
 let pendingLevelUp = null;
 
-function withLevel(character, level) {
-    return { ...character, level, experiencePoints: Math.max(Number(character.experiencePoints) || 0, 0) };
+// The character as it is at a level, or at a stage before 1st level (creature heroes).
+function charAt(character, lvl, stage) {
+    const info = ClassesDatabase[character.characterClass] || {};
+    if (stage) return { ...character, level: 1, experiencePoints: stage.xp };
+    const minXp = (info.xpTable && info.xpTable[lvl]) || 0;
+    return { ...character, level: lvl, experiencePoints: Math.max(Number(character.experiencePoints) || 0, minXp, 0) };
+}
+function withLevel(character, level) { return charAt(character, level, null); }
+
+// Saving throw row [death, wands, paralysis, breath, spells] at a level or stage (no Wisdom or items).
+function savesAt(character, lvl, stage) {
+    const info = ClassesDatabase[character.characterClass] || {};
+    const own = stage?.saves || info.savesByLevel?.[lvl];
+    let row = null;
+    if (Array.isArray(own) && own.length === 5) row = own.slice();
+    else {
+        const sl = Math.max(1, Math.min(36, Number(stage?.saveLevel ?? info.saveLevels?.[lvl] ?? lvl) || 1));
+        const t = (info.saves || []).find(x => sl >= x.minLevel && sl <= x.maxLevel);
+        if (t) row = [t.death, t.wands, t.paralysis, t.breath, t.spells];
+    }
+    const bonus = Number(stage ? stage.saveBonus : info.saveBonus?.[lvl]) || 0;
+    return row ? row.map(v => v - bonus) : null;
+}
+function thac0At(character, lvl, stage) {
+    if (stage) return stage.thac0;
+    const t = (typeof getThac0TableFor === 'function' && getThac0TableFor(withLevel(character, lvl))) || ClassesDatabase[character.characterClass]?.thac0;
+    return t ? t[lvl] : undefined;
+}
+function hitDiceAt(character, lvl, stage) {
+    const info = ClassesDatabase[character.characterClass] || {};
+    if (stage) return { dice: stage.dice, plus: 0, die: stage.die || info.hitDie || 8 };
+    const row = Array.isArray(info.hitDiceTable) ? (info.hitDiceTable[lvl] || [0, 0]) : null;
+    return row ? { dice: row[0], plus: row[1] || 0, die: info.hitDie || 8 } : null;
 }
 
-// What changes between two levels, for the record and the dialog.
-function describeLevelGains(character, fromLvl, toLvl) {
+// What changes between two points (levels, or stages before 1st level), and what to do about it.
+// opts: { stageFrom, stageTo, sub } (sub = a sub-class with its own level).
+function describeLevelGains(character, fromLvl, toLvl, opts = {}) {
     const info = ClassesDatabase[character.characterClass] || {};
     const option = (typeof getClassOption === 'function') ? getClassOption(character) : null;
-    const notes = [];
+    const notes = [], steps = [];
     const conMod = Number(character.abilities?.constitution?.modifier) || 0;
     const con = conMod ? ` ${conMod > 0 ? '+' : ''}${conMod} (Con)` : '';
+    const { stageFrom = null, stageTo = null, sub = false } = opts;
+    const before = charAt(character, fromLvl, stageFrom), after = charAt(character, toLvl, stageTo);
 
-    // Hit points for the new level.
+    if (sub && option) {
+        // Sub-class with its own level: its spells and abilities only.
+        const subAt = l => ({ ...character, subClassLevel: l, subClassXP: Math.max(Number(character.subClassXP) || 0, option.xpTable?.[l] || 0) });
+        if (typeof getCasterProfiles === 'function') {
+            const p0 = getCasterProfiles(subAt(fromLvl)).find(p => p.key === 'option') || { slots: [] };
+            const p1 = getCasterProfiles(subAt(toLvl)).find(p => p.key === 'option');
+            if (p1) {
+                const ch = (p1.slots || []).map((n, i) => n - ((p0.slots || [])[i] || 0)).map((d, i) => d > 0 ? `+${d} level ${i + 1}` : '').filter(Boolean);
+                if (ch.length) notes.push(`${p1.title || 'Spells'}: ${ch.join(', ')}`);
+            }
+        }
+        const feats = (option.features || []).filter(f => f.minLevel > fromLvl && f.minLevel <= toLvl).map(f => f.name);
+        if (feats.length) notes.push(`New: ${feats.join(', ')}`);
+        return { hpHint: '', fixedHp: 0, noHp: true, notes, steps };
+    }
+
+    // Hit points.
     let hpHint = '', fixedHp = null;
-    if (Array.isArray(info.hitDiceTable)) {
-        const [d0, p0] = info.hitDiceTable[fromLvl] || [0, 0];
-        const [d1, p1] = info.hitDiceTable[toLvl] || [d0, p0];
-        if (d1 > d0) hpHint = `Roll ${d1 - d0}d${info.hitDie}${con}`;
-        else if (p1 > p0) { fixedHp = p1 - p0; hpHint = `+${fixedHp} (fixed, no Con)`; }
+    const hd0 = hitDiceAt(character, fromLvl, stageFrom), hd1 = hitDiceAt(character, toLvl, stageTo);
+    if (hd0 && hd1) {
+        if (hd1.dice > hd0.dice) hpHint = `Roll ${hd1.dice - hd0.dice}d${hd1.die}${con}`;
+        else if (hd1.dice === hd0.dice && hd1.die > hd0.die) hpHint = `Roll 1d${hd1.die - hd0.die} more${con} (your Hit Die grows from d${hd0.die} to d${hd1.die})`;
+        else if (hd1.plus > hd0.plus) { fixedHp = hd1.plus - hd0.plus; hpHint = `+${fixedHp} (fixed, no Con)`; }
         else { fixedHp = 0; hpHint = 'No new Hit Die at this level'; }
     } else if (toLvl <= 9) {
         const bonus = Number(info.hpDieBonus) || 0;
-        hpHint = `Roll 1d${info.hitDie || 8}${bonus ? ` +${bonus}` : ''}${con}`;
+        hpHint = `Roll ${toLvl - fromLvl > 1 ? (toLvl - fromLvl) : 1}d${info.hitDie || 8}${bonus ? ` +${bonus} each` : ''}${con}`;
     } else {
-        fixedHp = option?.hpPerLevelAfter9 ?? info.hpPerLevelAfter9 ?? 1;
+        fixedHp = (option?.hpPerLevelAfter9 ?? info.hpPerLevelAfter9 ?? 1) * Math.max(1, toLvl - Math.max(fromLvl, 9));
         hpHint = `+${fixedHp} (fixed after 9th level, no Con)`;
+    }
+
+    // Combat numbers.
+    const t0 = thac0At(character, fromLvl, stageFrom), t1 = thac0At(character, toLvl, stageTo);
+    if (t0 !== undefined && t1 !== undefined && t1 < t0) notes.push(`THAC0 ${t0} → ${t1}`);
+    const s0 = savesAt(character, fromLvl, stageFrom), s1 = savesAt(character, toLvl, stageTo);
+    if (s0 && s1) {
+        const names = ['death ray', 'wands', 'paralysis', 'breath', 'spells'];
+        const better = s1.map((v, i) => v < s0[i] ? `${names[i]} ${s0[i]} → ${v}` : '').filter(Boolean);
+        if (better.length) notes.push(`Saves: ${better.join(', ')}`);
+    }
+    if (typeof getNaturalArmourClass === 'function') {
+        const a0 = getNaturalArmourClass(before), a1 = getNaturalArmourClass(after);
+        if (a0 != null && a1 != null && a1 < a0) notes.push(`Natural AC ${a0} → ${a1}`);
+    }
+    if (typeof getAttacksPerRound === 'function') {
+        try {
+            const k0 = getAttacksPerRound(character.characterClass, before.level, before), k1 = getAttacksPerRound(character.characterClass, after.level, after);
+            if (k1.count > k0.count || k1.note !== k0.note) notes.push(`Attacks: ${k1.count} a round (${k1.note})`);
+        } catch (e) { /* combat module not loaded */ }
     }
 
     // Skill slots and weapon feats.
     if (typeof getTotalSkillSlots === 'function') {
-        const s = getTotalSkillSlots(withLevel(character, toLvl)) - getTotalSkillSlots(withLevel(character, fromLvl));
-        if (s > 0) notes.push(`+${s} general skill slot${s > 1 ? 's' : ''}`);
+        const n = getTotalSkillSlots(after) - getTotalSkillSlots(before);
+        if (n > 0) {
+            notes.push(`+${n} general skill slot${n > 1 ? 's' : ''}`);
+            steps.push({ key: 'skill', label: `Learn ${n > 1 ? n + ' skills' : 'a skill'} (or raise one you know)`, run: () => { if (typeof switchTab === 'function') switchTab('tab-skills'); if (typeof openAddSkillModal === 'function') openAddSkillModal(); } });
+        }
     }
-    const feats = info.weaponFeatsProgression;
-    if (feats && Array.isArray(feats.gainLevels) && feats.gainLevels.includes(toLvl)) notes.push('+1 weapon feat');
+    const fp = info.weaponFeatsProgression;
+    const newFeats = fp && Array.isArray(fp.gainLevels) ? fp.gainLevels.filter(l => l > fromLvl && l <= toLvl).length : 0;
+    if (newFeats) {
+        notes.push(`+${newFeats} weapon feat${newFeats > 1 ? 's' : ''}`);
+        steps.push({ key: 'feat', label: `Train a weapon (${newFeats} new feat${newFeats > 1 ? 's' : ''})`, run: () => { if (typeof switchTab === 'function') switchTab('tab-combat'); if (typeof openAddWeaponModal === 'function') openAddWeaponModal(); } });
+    }
 
     // Spells: compare slot rows of every spellbook.
     if (typeof getCasterProfiles === 'function') {
-        const before = getCasterProfiles(withLevel(character, fromLvl));
-        const after = getCasterProfiles(withLevel(character, toLvl));
-        after.forEach(p => {
-            const q = before.find(b => b.key === p.key) || { slots: [] };
+        const pb = getCasterProfiles(before), pa = getCasterProfiles(after);
+        pa.forEach(p => {
+            const q = pb.find(b => b.key === p.key) || { slots: [] };
             const changes = (p.slots || []).map((n, i) => n - ((q.slots || [])[i] || 0)).map((d, i) => d > 0 ? `+${d} level ${i + 1}` : '').filter(Boolean);
-            if (changes.length) notes.push(`${p.title || (p.type === 'arcane' ? 'Spells' : 'Prayers')}: ${changes.join(', ')}`);
+            if (!changes.length) return;
+            notes.push(`${p.title || (p.type === 'arcane' ? 'Spells' : 'Prayers')}: ${changes.join(', ')}`);
+            const newTier = (p.slots || []).length > (q.slots || []).length;
+            if (p.key === 'main' && p.type === 'arcane' && !p.spellList && typeof openCompendiumModal === 'function') {
+                steps.push({ key: 'spells', label: newTier ? `Add level ${p.slots.length} spells to your spellbook` : 'Add new spells to your spellbook', run: () => { if (typeof switchTab === 'function') switchTab('tab-features'); openCompendiumModal(); } });
+            }
         });
     }
 
-    // Class abilities gained at exactly this level.
-    const features = [...(info.features || []), ...((option && option.sharesMainLevel) ? (option.features || []) : [])]
-        .filter(f => f.minLevel > fromLvl && f.minLevel <= toLvl).map(f => f.name);
+    // Class abilities gained here (by level, or by stage for a growing creature).
+    // (Abilities of 1st level already show while a creature grows, so a stage change adds none.)
+    const lvlFrom = stageFrom ? 1 : fromLvl;
+    const features = stageTo ? [] : [...(info.features || []), ...((option && option.sharesMainLevel) ? (option.features || []) : [])]
+        .filter(f => f.minLevel > lvlFrom && f.minLevel <= toLvl).map(f => f.name);
     if (features.length) notes.push(`New: ${features.join(', ')}`);
     if (info.smashParryLevel && fromLvl < info.smashParryLevel && toLvl >= info.smashParryLevel) notes.push('Fighter Combat Options');
 
-    return { hpHint, fixedHp, notes };
+    // Daily uses that grow with level, and new abilities with limited uses.
+    if (typeof dailyUseChangesFor === 'function') {
+        const du = dailyUseChangesFor(after);
+        du.updates.forEach(u => notes.push(`Daily uses: ${u.entry.name} ${u.entry.max} → ${u.max} (updated when you record)`));
+        const prev = new Set((typeof limitedUseAbilities === 'function' ? limitedUseAbilities(before) : []).map(a => a.name));
+        du.fresh = du.fresh.filter(f => !prev.has(f.name));
+        if (du.fresh.length) steps.push({ key: 'uses', label: `Track uses of ${du.fresh.map(f => f.name).join(', ')}`, run: () => { if (typeof switchTab === 'function') switchTab('tab-features'); if (typeof addSuggestedDailyUses === 'function') addSuggestedDailyUses(); } });
+    }
+    return { hpHint, fixedHp, notes, steps };
 }
 
-function openLevelUpDialog(fromLvl, toLvl) {
+// opts: { stageFrom, stageTo } for a growing creature, { sub: true } for a sub-class level.
+function openLevelUpDialog(fromLvl, toLvl, opts = {}) {
     if (!currentCharacter) return;
-    const gains = describeLevelGains(currentCharacter, fromLvl, toLvl);
-    pendingLevelUp = { fromLvl, toLvl, gains };
-    safeSetText('levelup-title', `${currentCharacter.name || 'Your hero'} reaches level ${toRoman(toLvl)}`);
+    const gains = describeLevelGains(currentCharacter, fromLvl, toLvl, opts);
+    pendingLevelUp = { fromLvl, toLvl, gains, opts, done: new Set() };
+    // Keep a copy of the saved sheet from before this level-up (Backups); not again when reopened after "Later".
+    if (typeof backupBeforeLevelUp === 'function' && !opts.reopened) {
+        backupBeforeLevelUp(opts.sub ? `${currentCharacter.subClass} level ${toLvl}` : opts.stageFrom ? `growing past ${opts.stageFrom.name}` : `level ${toLvl}`);
+    }
+    const who = currentCharacter.name || 'Your hero';
+    const stageName = s => s ? s.name : `level ${toRoman(toLvl)}`;
+    const title = opts.sub ? `${who}: ${currentCharacter.subClass} level ${toRoman(toLvl)}`
+        : (opts.stageFrom ? `${who} grows: ${opts.stageFrom.name} → ${stageName(opts.stageTo)}` : `${who} reaches level ${toRoman(toLvl)}`);
+    safeSetText('levelup-title', title);
     safeSetText('levelup-hp-hint', gains.hpHint);
+    const hpWrap = document.getElementById('levelup-hp-wrap');
+    if (hpWrap) hpWrap.style.display = gains.noHp ? 'none' : '';
     const hpInput = document.getElementById('levelup-hp');
     if (hpInput) { hpInput.value = gains.fixedHp !== null ? gains.fixedHp : ''; hpInput.placeholder = 'Hit points rolled'; }
     const list = document.getElementById('levelup-gains');
     if (list) list.innerHTML = gains.notes.length ? gains.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('') : '<li>No other changes at this level.</li>';
-    document.getElementById('levelup-modal').style.display = 'flex';
-    if (hpInput && gains.fixedHp === null) setTimeout(() => hpInput.focus(), 50);
+    renderLevelUpSteps();
+    const noHpBtn = document.getElementById('levelup-nohp-btn');
+    if (noHpBtn) noHpBtn.style.display = gains.noHp ? 'none' : '';
+    const m = document.getElementById('levelup-modal');
+    m.style.display = 'flex';
+    m.style.zIndex = '1000';
+    if (typeof resetFormEdits === 'function') resetFormEdits(m);
+    if (hpInput && gains.fixedHp === null && !gains.noHp) setTimeout(() => hpInput.focus(), 50);
+}
+
+function renderLevelUpSteps() {
+    const wrap = document.getElementById('levelup-steps-wrap');
+    const box = document.getElementById('levelup-steps');
+    if (!wrap || !box || !pendingLevelUp) return;
+    const steps = pendingLevelUp.gains.steps || [];
+    wrap.style.display = steps.length ? '' : 'none';
+    box.innerHTML = steps.map((st, i) => {
+        const done = pendingLevelUp.done.has(st.key);
+        return `<div class="levelup-step${done ? ' done' : ''}"><span class="levelup-tick">${done ? getIcon('check', 13) : ''}</span><span>${escapeHtml(st.label)}</span><button type="button" class="btn btn-sm" onclick="runLevelUpStep(${i})">${done ? 'Again' : 'Do it'}</button></div>`;
+    }).join('');
+}
+// A step opens its window in front of the level-up window, which waits behind it.
+function runLevelUpStep(i) {
+    const st = pendingLevelUp?.gains.steps?.[i];
+    if (!st) return;
+    pendingLevelUp.done.add(st.key);
+    renderLevelUpSteps();
+    const m = document.getElementById('levelup-modal');
+    if (m) m.style.zIndex = '990';
+    try { st.run(); } catch (e) { console.error(e); }
 }
 
 function confirmLevelUp(recordHp = true) {
     if (!pendingLevelUp || !currentCharacter) return closeLevelUpDialog();
-    const { fromLvl, toLvl, gains } = pendingLevelUp;
+    const { fromLvl, toLvl, gains, opts } = pendingLevelUp;
+    if (opts.sub) {
+        addChronicleEntry('level', `${currentCharacter.subClass} level ${fromLvl} → ${toLvl}.${gains.notes.length ? ' ' + gains.notes.join('; ') + '.' : ''}`,
+            { subClass: currentCharacter.subClass, from: fromLvl, to: toLvl, gains: gains.notes });
+        closeLevelUpDialog();
+        return;
+    }
     const raw = document.getElementById('levelup-hp')?.value;
     const hp = recordHp && raw !== '' && raw != null ? Math.max(0, Math.trunc(Number(raw) || 0)) : null;
-    let text = `Level ${fromLvl} → ${toLvl}.`;
+    let text = opts.stageFrom ? `${opts.stageFrom.name} → ${opts.stageTo ? opts.stageTo.name : 'level ' + toLvl}.` : `Level ${fromLvl} → ${toLvl}.`;
     if (hp !== null) {
         if (!currentCharacter.hitPoints) currentCharacter.hitPoints = { current: 0, maximum: 0 };
         currentCharacter.hitPoints.maximum = (Number(currentCharacter.hitPoints.maximum) || 0) + hp;
@@ -208,8 +344,15 @@ function confirmLevelUp(recordHp = true) {
     } else {
         text += ' Hit points not recorded.';
     }
-    if (gains.notes.length) text += ' ' + gains.notes.join('; ') + '.';
+    // Daily uses that grow with level.
+    if (typeof dailyUseChangesFor === 'function') {
+        const du = dailyUseChangesFor(currentCharacter);
+        du.updates.forEach(u => { u.entry.max = u.max; });
+        if (du.updates.length && typeof renderDailyUses === 'function') renderDailyUses();
+    }
+    if (gains.notes.length) text += ' ' + gains.notes.map(n => n.replace(/ \(updated when you record\)$/, '')).join('; ') + '.';
     addChronicleEntry('level', text, { from: fromLvl, to: toLvl, hpGained: hp, hpMax: currentCharacter.hitPoints?.maximum, gains: gains.notes });
+    if (typeof debouncedSave === 'function') debouncedSave();
     closeLevelUpDialog();
 }
 
@@ -218,6 +361,33 @@ function closeLevelUpDialog() {
     const m = document.getElementById('levelup-modal');
     if (m) m.style.display = 'none';
 }
+
+// "Later": close without writing anything to the log. The level itself is already on the sheet;
+// a short message offers to open the window again.
+function laterLevelUp() {
+    const p = pendingLevelUp;
+    closeLevelUpDialog();
+    if (!p || typeof sheetToast !== 'function') return;
+    sheetToast('Level-up not written to the Adventure Log.', {
+        action: 'Open again', ms: 8000,
+        onAction: () => openLevelUpDialog(p.fromLvl, p.toLvl, { ...p.opts, reopened: true }),
+    });
+}
+// Esc or a click outside = Later (asking first if hit points were typed).
+async function dismissLevelUp() {
+    const m = document.getElementById('levelup-modal');
+    if (typeof okToDiscard === 'function' && !(await okToDiscard(m))) return;
+    laterLevelUp();
+}
+(function setupLevelUpWindow() {
+    const m = document.getElementById('levelup-modal');
+    if (!m) return;
+    if (typeof watchFormEdits === 'function') watchFormEdits(m);
+    m.addEventListener('click', e => { if (e.target === m) dismissLevelUp(); });
+    if (typeof registerModalCloser === 'function') registerModalCloser('levelup-modal', dismissLevelUp);
+})();
+window.runLevelUpStep = runLevelUpStep;
+window.laterLevelUp = laterLevelUp;
 
 // ---------------------------------------------------------------------------
 // Version history
@@ -258,6 +428,8 @@ function closeHistoryModal() {
     const m = document.getElementById('history-modal');
     if (m) m.style.display = 'none';
 }
+// Read-only window: Esc closes it (the backdrop click is in index.html).
+if (typeof registerModalCloser === 'function') registerModalCloser('history-modal', closeHistoryModal);
 
 async function saveRestorePointNow() {
     if (!currentCharacter) return;

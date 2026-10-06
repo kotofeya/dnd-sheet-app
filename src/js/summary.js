@@ -17,7 +17,9 @@ function buildCharacterSummary() {
     const roman = n => (typeof toRoman === 'function' ? toRoman(n) : n);
     const opt = typeof getClassOption === 'function' ? getClassOption(ch) : null;
     const sub = ch.subClass ? `${ch.subClass}${opt?.ownXpTrack ? ` ${roman(Number(ch.subClassLevel) || 1)}` : ''}` : '';
-    const nextXp = info.xpTable ? info.xpTable[level + 1] : null;
+    const nextT = typeof nextXpThreshold === 'function' ? nextXpThreshold(ch) : null;
+    const nextXp = nextT ? nextT.xp : (info.xpTable ? info.xpTable[level + 1] : null);
+    const nextLabel = nextT ? nextT.label.replace(/^Level /, 'level ') : 'next level';
     const bio = ch.bio || {};
 
     const abil = ['strength', 'intelligence', 'wisdom', 'dexterity', 'constitution', 'charisma'].map(k => {
@@ -132,7 +134,7 @@ footer { margin-top: 2rem; color: #6A5842; font-size: .8rem; border-top: 1px sol
 </style></head><body>
 <h1>${E(ch.name || 'Unnamed hero')}</h1>
 <div class="sub">${E([ch.characterClass, stage ? stage.name : `level ${roman(level)}`, sub, ch.alignment].filter(Boolean).join(' · '))}${bio.homeland ? ' · ' + E(bio.homeland) : ''}${ch.deity ? ' · follows ' + E(ch.deity) : ''}<br>
-XP ${summaryNum(ch.experiencePoints)}${nextXp ? ` (next level at ${summaryNum(nextXp)})` : ''}${bio.gender ? ' · ' + E(bio.gender) : ''}${bio.age ? ' · age ' + E(bio.age) : ''}${bio.languages ? ' · languages: ' + E(bio.languages) : ''}</div>
+XP ${summaryNum(ch.experiencePoints)}${nextXp != null ? ` (${E(nextLabel)} at ${summaryNum(nextXp)})` : ''}${bio.gender ? ' · ' + E(bio.gender) : ''}${bio.age ? ' · age ' + E(bio.age) : ''}${bio.languages ? ' · languages: ' + E(bio.languages) : ''}</div>
 <div class="abil">${abil}</div>
 <div class="two">
   <section><h2>Combat</h2><table>${combat.map(([l, v]) => `<tr><td>${l}</td><td class="n">${v}</td></tr>`).join('')}</table></section>
@@ -162,28 +164,31 @@ function openCharacterSummary() {
         m = document.createElement('div');
         m.id = 'summary-modal';
         m.className = 'notes-form-wrap';
+        m.setAttribute('role', 'dialog');
+        m.setAttribute('aria-modal', 'true');
+        m.setAttribute('aria-label', 'Character summary');
         m.addEventListener('click', e => { if (e.target === m) closeCharacterSummary(); });
         document.body.appendChild(m);
-        document.addEventListener('keydown', summaryKeys, true);
     }
     m.innerHTML = `<div class="card summary-card" onclick="event.stopPropagation();">
         <div class="panel-head"><h2>Character Summary</h2>
             <div class="panel-head-tools">
                 <button type="button" class="btn btn-sm" onclick="printCharacterSummary()">${getIcon('print', 14)} Print</button>
                 <button type="button" class="btn btn-sm" onclick="saveCharacterSummary()" title="Save as a page anyone can open in a browser">${getIcon('export', 14)} Save as page</button>
-                <button type="button" class="btn btn-sm" onclick="exportCharacterJSON()" title="The full character file, to back up or to import on another computer">Character file</button>
+                <button type="button" class="btn btn-sm" onclick="exportCharacterJSON()" title="The full character file, to back up or to import on another computer">${getIcon('export', 14)} Export character file</button>
                 <button type="button" class="icon-btn" onclick="closeCharacterSummary()" aria-label="Close">${getIcon('close', 15)}</button>
             </div>
         </div>
         <iframe id="summary-frame" class="summary-frame" title="Character summary"></iframe>
     </div>`;
     document.getElementById('summary-frame').srcdoc = html;
+    m.querySelector('.panel-head-tools button')?.focus();
 }
-function summaryKeys(e) { if (e.key === 'Escape' && document.getElementById('summary-modal')) closeCharacterSummary(); }
+// Read-only window: Esc (via registerModalCloser) and a click outside close it.
 function closeCharacterSummary() {
     document.getElementById('summary-modal')?.remove();
-    document.removeEventListener('keydown', summaryKeys, true);
 }
+if (typeof registerModalCloser === 'function') registerModalCloser('summary-modal', closeCharacterSummary);
 function printCharacterSummary() {
     const f = document.getElementById('summary-frame');
     try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.error(e); }

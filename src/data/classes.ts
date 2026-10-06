@@ -456,7 +456,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
 
     "Fighter": { 
         name: "Fighter", hitDie: 8, hpPerLevelAfter9: 2, attackBonus: FighterAttackBonus, thac0: toThac0(FighterAttackBonus), xpTable: FighterXP, saves: FighterSaves,
-        allowedArmor: "Any armor (Leather, Scale, Chain, Banded, Plate, Suit)",
+        allowedArmor: "Any armour (Leather, Scale, Chain, Banded, Plate, Suit)",
         allowedShields: true,
         allowedWeapons: "Any weapons",
         features: [
@@ -465,7 +465,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
     },
     "Cleric": { 
         name: "Cleric", hitDie: 6, hpPerLevelAfter9: 1, attackBonus: ClericAttackBonus, thac0: toThac0(ClericAttackBonus), xpTable: ClericXP, saves: ClericSaves,
-        allowedArmor: "Any armor (Leather, Chain, Plate, Suit)",
+        allowedArmor: "Any armour (Leather, Chain, Plate, Suit)",
         allowedShields: true,
         allowedWeapons: "Blunt weapons only (Club, Mace, War Hammer, Throwing Hammer, Sling, Staff, Blackjack)",
         spellProgression: ClericSpells,
@@ -488,7 +488,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
     },
     "Thief": { 
         name: "Thief", hitDie: 4, hpPerLevelAfter9: 2, attackBonus: ThiefAttackBonus, thac0: toThac0(ThiefAttackBonus), xpTable: ThiefXP, saves: ThiefSaves,
-        allowedArmor: "Leather armor only",
+        allowedArmor: "Leather armour only",
         allowedShields: false,
         allowedWeapons: "Any one-handed melee weapons, any missile weapons (no two-handed melee)",
         thiefSkillsList: ThiefSkillsList,
@@ -502,7 +502,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
     },
     "Dwarf": { 
         name: "Dwarf", hitDie: 8, hpPerLevelAfter9: 2, attackBonus: DwarfAttackBonus, thac0: toThac0(DwarfAttackBonus), xpTable: DwarfXP, saves: DwarfSaves,
-        allowedArmor: "Any armor suitable for small stature",
+        allowedArmor: "Any armour suitable for small stature",
         allowedShields: true,
         allowedWeapons: "Small & medium weapons (no two-handed swords, longbows, or polearms)",
         features: [
@@ -512,7 +512,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
     },
     "Elf": { 
         name: "Elf", hitDie: 6, hpPerLevelAfter9: 1, attackBonus: ElfAttackBonus, thac0: toThac0(ElfAttackBonus), xpTable: ElfXP, saves: ElfSaves,
-        allowedArmor: "Any armor",
+        allowedArmor: "Any armour",
         allowedShields: true,
         allowedWeapons: "Any weapons",
         spellProgression: MageSpells, // DD Table 4-4 is identical to Table 4-7
@@ -524,7 +524,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
     },
     "Halfling": { 
         name: "Halfling", hitDie: 6, hpPerLevelAfter9: 1, attackBonus: HalflingAttackBonus, thac0: toThac0(HalflingAttackBonus), xpTable: HalflingXP, saves: HalflingSaves,
-        allowedArmor: "Any armor sized for halflings",
+        allowedArmor: "Any armour sized for halflings",
         allowedShields: true,
         allowedWeapons: "Small & medium weapons suitable for size",
         features: [
@@ -539,7 +539,7 @@ export const ClassesDatabase: Record<string, ClassData> = {
         allowedShields: false,
         allowedWeapons: "Any weapon (unarmed martial arts preferred)",
         features: [
-            { minLevel: 1, name: "Unarmed Discipline & Natural AC", description: "Natural armor class scaling and increasing unarmed combat damage." },
+            { minLevel: 1, name: "Unarmed Discipline & Natural AC", description: "Natural armour class scaling and increasing unarmed combat damage." },
             { minLevel: 2, name: "Alertness", description: "Only surprised on a roll of 1 on 1d6." },
             { minLevel: 4, name: "Self Healing", description: "Once per day heals 1 HP per level." },
             { minLevel: 6, name: "Speak With Animals", description: "Can telepathically communicate with animals." },
@@ -589,14 +589,14 @@ const standardFeatLevels = [3, 6, 9, 11, 15, 23, 30, 36];
 // Воинские классы: старт 4 фита, финал 15 фитов
 if (ClassesDatabase["Fighter"]) {
     ClassesDatabase["Fighter"].weaponFeatsProgression = { start: 4, gainLevels: martialFeatLevels };
-    ClassesDatabase["Fighter"].allowedArmor = "Any armor (Leather, Chain, Plate, Suit)";
+    ClassesDatabase["Fighter"].allowedArmor = "Any armour (Leather, Chain, Plate, Suit)";
     ClassesDatabase["Fighter"].allowedShields = true;
     ClassesDatabase["Fighter"].allowedWeapons = "Any weapons";
 }
 
 if (ClassesDatabase["Dwarf"]) {
     ClassesDatabase["Dwarf"].weaponFeatsProgression = { start: 4, gainLevels: martialFeatLevels };
-    ClassesDatabase["Dwarf"].allowedArmor = "Any armor";
+    ClassesDatabase["Dwarf"].allowedArmor = "Any armour";
     ClassesDatabase["Dwarf"].allowedShields = true;
     ClassesDatabase["Dwarf"].allowedWeapons = "Small & medium weapons (no large weapons, see Table 6-1)";
 }
@@ -604,7 +604,7 @@ if (ClassesDatabase["Dwarf"]) {
 // Остальные классы: старт 2 фита, финал 10 фитов
 if (ClassesDatabase["Cleric"]) {
     ClassesDatabase["Cleric"].weaponFeatsProgression = { start: 2, gainLevels: standardFeatLevels };
-    ClassesDatabase["Cleric"].allowedArmor = "Any armor (Leather, Chain, Plate, Suit)";
+    ClassesDatabase["Cleric"].allowedArmor = "Any armour (Leather, Chain, Plate, Suit)";
     ClassesDatabase["Cleric"].allowedShields = true;
     ClassesDatabase["Cleric"].allowedWeapons = "Blunt weapons only (Club, Mace, War Hammer, Throwing Hammer, Sling, Staff, Blackjack)";
 }
@@ -618,21 +618,21 @@ if (ClassesDatabase["Magic-User"]) {
 
 if (ClassesDatabase["Thief"]) {
     ClassesDatabase["Thief"].weaponFeatsProgression = { start: 2, gainLevels: standardFeatLevels };
-    ClassesDatabase["Thief"].allowedArmor = "Leather armor only";
+    ClassesDatabase["Thief"].allowedArmor = "Leather armour only";
     ClassesDatabase["Thief"].allowedShields = false;
     ClassesDatabase["Thief"].allowedWeapons = "Any one-handed weapon and any missile weapon (no two-handed melee, no shields)";
 }
 
 if (ClassesDatabase["Elf"]) {
     ClassesDatabase["Elf"].weaponFeatsProgression = { start: 2, gainLevels: standardFeatLevels };
-    ClassesDatabase["Elf"].allowedArmor = "Any armor";
+    ClassesDatabase["Elf"].allowedArmor = "Any armour";
     ClassesDatabase["Elf"].allowedShields = true;
     ClassesDatabase["Elf"].allowedWeapons = "Any weapons";
 }
 
 if (ClassesDatabase["Halfling"]) {
     ClassesDatabase["Halfling"].weaponFeatsProgression = { start: 2, gainLevels: standardFeatLevels };
-    ClassesDatabase["Halfling"].allowedArmor = "Any armor";
+    ClassesDatabase["Halfling"].allowedArmor = "Any armour";
     ClassesDatabase["Halfling"].allowedShields = true;
     ClassesDatabase["Halfling"].allowedWeapons = "Small weapons only (see Table 6-1)";
 }
@@ -693,11 +693,11 @@ const CompendiumClasses: Record<string, ClassData> = {
         weaponFeatsProgression: martialFeats,
         minScores: { strength: 12, dexterity: 12 },
         armour: 'any', allowedShields: true,
-        allowedArmor: "Any armor (plate or suit armor cancels the Archer missile bonus)",
+        allowedArmor: "Any armour (plate or suit armour cancels the Archer missile bonus)",
         allowedWeapons: "Bows, crossbows, axes, daggers, javelins, spears, swords",
         features: [
             { minLevel: 1, name: "Archer's Touch", description: "A magic missile weapon and/or magic missile gets +1 in your hands, over and above its own bonus." },
-            { minLevel: 1, name: "Missile Bonus", description: "When not wearing plate or suit armor, +to-hit and damage with a well-made bow and arrows: +0 (L1-3), +1 (L4-6), +2 (L7-9), +3 (L10-12), +4 (L13+). Applied automatically on the Combat tab." },
+            { minLevel: 1, name: "Missile Bonus", description: "When not wearing plate or suit armour, +to-hit and damage with a well-made bow and arrows: +0 (L1-3), +1 (L4-6), +2 (L7-9), +3 (L10-12), +4 (L13+). Applied automatically on the Combat tab." },
             { minLevel: 3, name: "Make Missiles", description: "Craft a dozen arrows in an 8-hour day, given raw materials." },
             { minLevel: 5, name: "Make Bows", description: "Craft a bow or crossbow in d6+8 days. A crude bow (-2 to hit, no Archer bonuses) takes under an hour." },
             { minLevel: 7, name: "Archer Spells (1/day)", description: "With Int 9+: Magic Missile, Shield, Unmissable Shot*. Learned by spell research; never from scrolls. (*Tome of the Magic of Mystara Vol. 1)" },
@@ -748,7 +748,7 @@ const CompendiumClasses: Record<string, ClassData> = {
         minScores: { strength: 12, dexterity: 12 },
         restrictions: ["Race: Human or Halfling", "Alignment: Neutral only"],
         armour: 'leather', allowedShields: false,
-        allowedArmor: "Leather armor only", allowedWeapons: "Any weapons",
+        allowedArmor: "Leather armour only", allowedWeapons: "Any weapons",
         features: [
             { minLevel: 1, name: "Animal Affinity", description: "Special abilities are still being written in the Compendium." },
         ],
@@ -761,7 +761,7 @@ const CompendiumClasses: Record<string, ClassData> = {
         minScores: { intelligence: 12, dexterity: 12 },
         restrictions: ["Alignment: Neutral only", "At least one weapon feat in a capture weapon (blowgun, bolas, net...)"],
         armour: 'any', allowedShields: true,
-        allowedArmor: "Any armor (thief abilities need chain mail or lighter)",
+        allowedArmor: "Any armour (thief abilities need chain mail or lighter)",
         allowedWeapons: "Any weapons",
         features: [
             { minLevel: 1, name: "Tracking", description: "Underground: 50% along passages, 45% doors/stairs, 35% trap doors, 25% chimneys/concealed doors, 15% secret doors. Outdoors: 70% base, +2% per extra creature, -15% per 24 hours, -30% per hour of precipitation." },
@@ -780,7 +780,7 @@ const CompendiumClasses: Record<string, ClassData> = {
         thiefSkillsList: ThiefSkillsList, thiefSkillsMatrix: ThiefSkillsMatrix,
         minScores: { strength: 9, dexterity: 9 },
         armour: 'leather', allowedShields: false,
-        allowedArmor: "Leather armor only",
+        allowedArmor: "Leather armour only",
         allowedWeapons: "Any one-handed weapon and any missile weapon (no two-handed melee, no shields)",
         features: [
             { minLevel: 1, name: "Thief Abilities", description: "As a Thief, except no Pick Pockets and no Sneak Attack." },
@@ -845,7 +845,7 @@ const ShadowElfClasses: Record<string, ClassData> = {
         weaponFeatsProgression: { start: 2, gainLevels: standardFeatLevels },
         minScores: { intelligence: 9 },
         armour: 'any', allowedShields: true,
-        allowedArmor: "Any armor", allowedWeapons: "Any weapons",
+        allowedArmor: "Any armour", allowedWeapons: "Any weapons",
         // GAZ13: Combat Options and 2 attacks at 850,000 XP (DD elf 12th level); 3 attacks at 2,600,000 XP; never 4.
         smashParryLevel: 12,
         multipleAttacks: [[12, 2]],
@@ -879,7 +879,7 @@ const ShadowElfClasses: Record<string, ClassData> = {
         minScores: { intelligence: 12, wisdom: 12 },
         restrictions: ["Must bear the Mark of Rafiel from birth", "Shaman magic needs a soul crystal and does not work on the surface"],
         armour: 'any', allowedShields: true,
-        allowedArmor: "Any armor", allowedWeapons: "Any weapons",
+        allowedArmor: "Any armour", allowedWeapons: "Any weapons",
         smashParryLevel: 12, multipleAttacks: [[12, 2]], multipleAttacksXp: [[850000, 2], [2600000, 3]],
         features: [
             { minLevel: 1, name: "Mark and Test of Rafiel", description: "Chosen by Rafiel at birth. Shaman levels have their own XP bar (Divine Magic Table 4.12): split the XP you earn between it and your elf XP as you wish. Your first shaman spells come at 1,000 shaman XP, after passing the Test of Rafiel. Your shaman level can never exceed your elf level." },
@@ -1843,7 +1843,7 @@ const creatureCaster = (race: string, kind: 'Shaman' | 'Wicca', max: number, min
         minScores: shaman ? { wisdom: min } : { intelligence: min },
         restrictions: [`${max}th spellcaster level at most`, "A shaman cannot also be a wicca"],
         features: featureList([
-            [1, `${race} ${kind}`, `Your ${kind.toLowerCase()} level has its own XP bar (Table 12: 1,000 XP for 1st, 2,000 for 2nd, 4,000 for 3rd... then +200,000 a level): to rise, earn the next race level's XP and the next ${kind.toLowerCase()} level's XP. ${shaman ? 'A 1st-level shaman has no spells yet (still on trial).' : ''} Maximum level ${max}; going beyond needs a daunting ritual and a check at +2, failure costing the XP.`],
+            [1, `${race} ${kind}`, `Your ${kind.toLowerCase()} level has its own XP bar (1,000 XP for 1st, 2,000 for 2nd, 4,000 for 3rd... then +200,000 a level): to rise, earn the next race level's XP and the next ${kind.toLowerCase()} level's XP. ${shaman ? 'A 1st-level shaman has no spells yet (still on trial).' : ''} Maximum level ${max}; going beyond needs a daunting ritual and a check at +2, failure costing the XP.`],
             [1, "Spell List", shaman ? "Shamans pray for a restricted clerical list (RC p. 216) and cannot turn undead; they may use any clerical magic item." : "Wiccas learn a restricted magic-user list (RC p. 216) from spellbooks; they may use any magic-user item."],
             [1, "Optional Saves", `You may use the saving throws of a ${shaman ? 'cleric' : 'magic-user'} of your ${kind.toLowerCase()} level where they are better, category by category.`],
             [1, "More Spells", "Other rulebook spells can be learned by a day's ritual or study per spell level and 1,000 gp per spell level: chance ((Wisdom + spellcaster level) x 2) - (3 x spell level)%; new spells take twice as long and cost twice as much, with 5 x spell level."],
@@ -1860,6 +1860,49 @@ const PC2CasterOptions: ClassData[] = [
     creatureCaster("Pegataur", "Wicca", 8, 15, { replacesMainSpells: true }),
 ];
 PC2CasterOptions.forEach(o => { ClassesDatabase[o.name] = o; });
+// PC1 woodland spellcasters (pp. 21-23): the same XP costs and rules. Woodland shamans have the
+// shaman list and the druid spells; centaur wiccas learn from books.
+const pc1Caster = (race: string, kind: 'Shaman' | 'Wicca', max: number, mins: ClassData['minScores'], notes: [number, string, string][], extra: Partial<ClassData> = {}): ClassData => {
+    const o = creatureCaster(race, kind, max, 10, { spellNames: kind === 'Shaman' ? 'shaman_druid' : 'wicca', ...extra });
+    o.source = PC1 + " (pp. 21-23)";
+    o.minScores = mins ?? {};
+    o.spellsNote = `${kind} spells begin after the Ritual of Passage, at 1,000 ${kind.toLowerCase()} XP: ${kind === 'Shaman' ? 'a Wisdom' : 'an Intelligence'} check; if it fails, the 1,000 XP are lost and must be earned again.`;
+    o.features = (o.features || []).map(ft => ft.name === "Spell List" && kind === 'Shaman'
+        ? { ...ft, description: "Woodland shamans pray for the shaman list (RC p. 216) and all the druid spells, and cannot turn undead; they may use any clerical magic item." }
+        : ft).concat(featureList(notes));
+    o.restrictions = [`${max}th spellcaster level at most (more needs a Ritual you design; three failures and you stop for good)`, ...(extra.restrictions || [])];
+    return o;
+};
+const PC1CasterOptions: ClassData[] = [
+    pc1Caster("Centaur", "Shaman", 8, { intelligence: 13, wisdom: 10 }, [
+        [1, "Chiron's Heirs", "Taught by a centaur tutor; every centaur shows you deep respect and hospitality, and expects you to use your gifts for the clans."],
+        [1, "Natural Places", "Away from natural settings (underground, other planes) the DM may ask for a Wisdom check for each spell you pray for."],
+        [1, "Both Paths", "A centaur may become both shaman and wicca, one after the other: stop rising in one (by choice or at its limit), then start the other with a tutor. It needs Intelligence 15 and Wisdom 13."],
+    ]),
+    pc1Caster("Centaur", "Wicca", 8, { intelligence: 13, wisdom: 13 }, [
+        [1, "Chiron's Heirs", "Taught by a centaur tutor; centaur wiccas are literate scholars who learn spells from books or collections of scrolls, and may add spells from human and elven books or research."],
+        [1, "Both Paths", "A centaur may become both shaman and wicca, one after the other: stop rising in one (by choice or at its limit), then start the other with a tutor. It needs Intelligence 15 and Wisdom 13."],
+    ]),
+    pc1Caster("Faun", "Shaman", 7, { wisdom: 15 }, [
+        [1, "A Rare Calling", "Hardly one faun in a hundred: you must find another faun shaman to guide you, which may take several levels of adventuring."],
+        [1, "Natural Places", "Away from natural settings the DM may ask for a Wisdom check for each spell you pray for."],
+    ]),
+    pc1Caster("Treant", "Shaman", 10, { wisdom: 15 }, [
+        [1, "Druid of the Forest", "Not a religion: your spells come from attunement with the forest's life, gained by meditation. You need no teacher and design your own Ritual of Passage (the DM may give a bonus or penalty)."],
+        [1, "Only in the Woods", "You can regain spells only in woodland, never underground, in a city or elsewhere."],
+    ]),
+    pc1Caster("Wood Imp", "Shaman", 4, { wisdom: 14 }, [
+        [1, "Tribal Power", "Shamans are feared authority figures in wood imp tribes. You need a mentor of your own alignment (hard for Lawful or Neutral imps), who demands difficult and dangerous tasks as payment."],
+    ]),
+];
+PC1CasterOptions.forEach(o => { ClassesDatabase[o.name] = o; });
+[["Centaur", "Shaman or wicca (up to 8th level): choose it as the sub-class"], ["Treant", "Druidic shaman (Wisdom 15+, up to 10th level): choose it as the sub-class"],
+ ["Wood Imp", "Shaman (Wisdom 14+, up to 4th level): choose it as the sub-class"], ["Faun", "Shaman (Wisdom 15+, up to 7th level, with a faun teacher): choose it as the sub-class"]].forEach(([n, note]) => {
+    const c = ClassesDatabase[n!];
+    if (!c) return;
+    c.restrictions = (c.restrictions || []).filter(r => !/not yet on the sheet/.test(r)).concat([note!]);
+});
+
 // Gnomes and skygnomes (above) are PC2 creatures too: the first Hit Die rule and the spellcaster options.
 ["Gnome", "Skygnome"].forEach(n => {
     const g = ClassesDatabase[n];

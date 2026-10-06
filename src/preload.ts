@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('api', {
     showConfirm: (message: string) => ipcRenderer.invoke('show-confirm', message),
     // Parties: members, shared treasury and notes (parties.json beside the characters folder).
     getParties: () => ipcRenderer.invoke('get-parties'),
+    // Backups of all characters (weekly, before level-ups, or on demand), in the backups folder.
+    listBackups: () => ipcRenderer.invoke('list-backups'),
+    backupAll: (reason?: string) => ipcRenderer.invoke('backup-all', reason),
+    backupCharacter: (filename: string, reason: string) => ipcRenderer.invoke('backup-character', filename, reason),
+    loadBackupFile: (folder: string, file: string) => ipcRenderer.invoke('load-backup-file', folder, file),
+    openBackupsFolder: (folder?: string) => ipcRenderer.invoke('open-backups-folder', folder),
     saveParties: (data: unknown) => ipcRenderer.invoke('save-parties', data),
     // УБЕДИСЬ, ЧТО ЭТА СТРОКА ЕСТЬ:
     getClassesDB: () => ipcRenderer.invoke('get-classes-db'),

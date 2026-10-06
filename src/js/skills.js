@@ -483,13 +483,16 @@ function syncSkillsUI() {
     renderSkillsGrid();
 }
 
+// Skill descriptions are one clamped line; a click opens the whole text (kept open across redraws).
+const skillOpenDescs = new WeakSet();
 function toggleSkillDesc(index) {
+    const item = currentCharacter?.skills?.[index];
     const el = document.getElementById(`skill-desc-${index}`);
-    const btn = document.getElementById(`skill-desc-toggle-${index}`);
-    if (!el) return;
-    const isHidden = el.style.display === 'none';
-    el.style.display = isHidden ? 'block' : 'none';
-    if (btn) btn.innerHTML = getIcon(isHidden ? 'up' : 'down', 15);
+    if (!item || !el) return;
+    const open = !skillOpenDescs.has(item);
+    if (open) skillOpenDescs.add(item); else skillOpenDescs.delete(item);
+    el.classList.toggle('open', open);
+    el.setAttribute('aria-expanded', String(open));
 }
 
 // How the learned skills are listed (the stored order is kept; only the view is sorted).
@@ -573,6 +576,7 @@ function renderSkillsGrid() {
         return `${it.name} ${it.subType || ''} ${it.ability || ''} ${(!it.isCustom && def ? def.desc : it.desc) || ''}`.toLowerCase().includes(q);
     });
     if (!order.length) { grid.innerHTML = `<div class="ledger-note" style="padding: 12px 0;">No skill matches “${escapeHtml(skillSearchText.trim())}”.</div>`; return; }
+    const slotsLeft = getTotalSkillSlots(currentCharacter) - getSpentSkillSlots(currentCharacter);
     order.forEach(index => {
         const item = skills[index];
         const abilityKey = item.ability || 'intelligence';
@@ -603,11 +607,13 @@ function renderSkillsGrid() {
             ${thiefChance ? `<span class="ledger-num rubric" title="Percentile roll: as a level ${thiefChance.level} thief (GAZ13)">${thiefChance.value}%</span>`
                 : `<span class="ledger-num rubric" title="${rawTarget > 19 ? `Score ${rawTarget}, but a natural 20 always fails` : 'A natural 1 always succeeds, a 20 always fails'}">≤ ${targetScore}</span>`}
             <div class="rank-cell">
-                ${slotsSpent > 1 ? `<button type="button" class="icon-btn" onclick="downgradeSkillSlot(${index})" title="Remove a slot" aria-label="Remove a slot from ${escapeHtml(displayName)}">${getIcon('down', 15)}</button>` : ''}
-                <button type="button" class="ledger-num skill-ranks-btn" onclick="editSkillRanks(${index})" title="${freeRanks ? `${slotsSpent} rank${slotsSpent > 1 ? 's' : ''}, ${freeRanks} granted free. ` : ''}Click to set granted (free) ranks">${slotsSpent}${freeRanks ? `<sup>${freeRanks === slotsSpent ? 'F' : freeRanks + 'F'}</sup>` : ''}</button>
-                <button type="button" class="icon-btn" onclick="upgradeSkillSlot(${index})" title="Spend a slot (+1 target)" aria-label="Spend a slot on ${escapeHtml(displayName)}">${getIcon('up', 15)}</button>
+                ${slotsSpent > 1 ? `<button type="button" class="icon-btn" onclick="downgradeSkillSlot(${index})" title="Take back a slot (−1 target)" aria-label="Take a slot back from ${escapeHtml(displayName)}">${getIcon('down', 15)}</button>` : ''}
+                <span class="ledger-num skill-ranks-num" title="${slotsSpent} rank${slotsSpent > 1 ? 's' : ''}${freeRanks ? `, ${freeRanks} granted free` : ''}. Use the pencil to change granted ranks.">${slotsSpent}${freeRanks ? `<sup>${freeRanks === slotsSpent ? 'F' : freeRanks + 'F'}</sup>` : ''}</span>
+                ${slotsLeft > 0
+                    ? `<button type="button" class="icon-btn" onclick="upgradeSkillSlot(${index})" title="Spend a slot (+1 target)" aria-label="Spend a slot on ${escapeHtml(displayName)}">${getIcon('up', 15)}</button>`
+                    : `<button type="button" class="icon-btn is-disabled" aria-disabled="true" onclick="upgradeSkillSlot(${index})" title="No skill slots left. Gain a level or take a slot back from another skill." aria-label="Spend a slot on ${escapeHtml(displayName)} (no slots left)">${getIcon('up', 15)}</button>`}
             </div>
-            <div class="ledger-note" id="skill-desc-${index}">${escapeHtml(descText)}</div>
+            <div class="ledger-note skill-desc${skillOpenDescs.has(item) ? ' open' : ''}" id="skill-desc-${index}" role="button" tabindex="0" aria-expanded="${skillOpenDescs.has(item)}" title="Click to show or hide the whole description" onclick="toggleSkillDesc(${index})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleSkillDesc(${index}); }">${escapeHtml(descText)}</div>
             <div class="ledger-actions"><button type="button" class="icon-btn" onclick="editSkillRanks(${index})" title="Edit skill" aria-label="Edit ${escapeHtml(displayName)}">${getIcon('edit', 15)}</button><button type="button" class="icon-btn danger" onclick="removeSkill(${index})" title="Forget skill" aria-label="Forget ${escapeHtml(displayName)}">${getIcon('close', 15)}</button></div>
         `;
         grid.appendChild(row);
@@ -652,9 +658,11 @@ function openAddSkillModal() {
     select.innerHTML = '';
     safeSetVal('skill-select-search', '');
 
-    const sortedKeys = Object.keys(GENERAL_SKILLS_DATABASE).sort((a, b) => 
-        GENERAL_SKILLS_DATABASE[a].name.localeCompare(GENERAL_SKILLS_DATABASE[b].name)
-    );
+    // Skills already known are left out, unless they can be taken again with another specialization.
+    const known = new Set((currentCharacter?.skills || []).map(s => s.skillId));
+    const sortedKeys = Object.keys(GENERAL_SKILLS_DATABASE)
+        .filter(k => !known.has(k) || GENERAL_SKILLS_DATABASE[k].hasSpec)
+        .sort((a, b) => GENERAL_SKILLS_DATABASE[a].name.localeCompare(GENERAL_SKILLS_DATABASE[b].name));
 
     sortedKeys.forEach(k => {
         const s = GENERAL_SKILLS_DATABASE[k];
@@ -668,11 +676,14 @@ function openAddSkillModal() {
     setSkillModalMode('standard');
     onSkillSelectionChange();
     modal.style.display = 'flex';
+    const card = modal.querySelector('.card');
+    if (typeof watchFormEdits === 'function') { watchFormEdits(card); resetFormEdits(card); }
 }
 
 function closeAddSkillModal() {
     const modal = document.getElementById('skill-modal');
     if (modal) modal.style.display = 'none';
+    if (modal && typeof resetFormEdits === 'function') resetFormEdits(modal.querySelector('.card'));
     clearSkillError();
     safeSetVal('skill-spec-input', '');
     safeSetVal('custom-skill-name', '');
@@ -682,9 +693,16 @@ function closeAddSkillModal() {
     const gs = document.getElementById('skill-granted-source'); if (gs) gs.style.display = 'none';
 }
 
-function handleSkillModalBackdrop(event) {
-    if (event.target && event.target.id === 'skill-modal') closeAddSkillModal();
+// Esc or a click on the backdrop: ask before throwing away a typed specialization or homebrew skill.
+async function skillModalCloseAsk() {
+    const card = document.querySelector('#skill-modal .card');
+    if (typeof okToDiscard === 'function' && !(await okToDiscard(card))) return;
+    closeAddSkillModal();
 }
+function handleSkillModalBackdrop(event) {
+    if (event.target && event.target.id === 'skill-modal') skillModalCloseAsk();
+}
+if (typeof registerModalCloser === 'function') registerModalCloser('skill-modal', skillModalCloseAsk);
 
 function saveCharacterSkill() {
     if (!currentCharacter) {
@@ -786,7 +804,7 @@ function upgradeSkillSlot(index) {
     const total = getTotalSkillSlots(currentCharacter);
     const spent = getSpentSkillSlots(currentCharacter);
     if (total - spent <= 0) {
-        alert('No available skill slots left to upgrade!');
+        if (typeof sheetToast === 'function') sheetToast('No skill slots left. Gain a level, or take a slot back from another skill.');
         return;
     }
 
@@ -808,7 +826,8 @@ function downgradeSkillSlot(index) {
 
 async function removeSkill(index) {
     if (!currentCharacter || !Array.isArray(currentCharacter.skills)) return;
-    const isConfirmed = await sheetConfirm('Remove this general skill?', 'Remove');
+    const it = currentCharacter.skills[index];
+    const isConfirmed = await sheetConfirm(`Forget ${it ? `“${skillDisplayName(it)}”` : 'this general skill'}?`, 'Forget');
     if (!isConfirmed) return;
 
     currentCharacter.skills.splice(index, 1);
@@ -853,7 +872,7 @@ async function editSkillRanks(index) {
     const free = clampInt(res.freeSlots, 0, slots, 0);
     const paidBefore = (Number(item.slots) || 1) - skillFreeRanks(item);
     const left = getTotalSkillSlots(currentCharacter) - getSpentSkillSlots(currentCharacter);
-    if ((slots - free) - paidBefore > left) {
+    if ((slots - free) - paidBefore > 0 && (slots - free) - paidBefore > left) {
         await sheetAlert(`That needs ${(slots - free) - paidBefore} more skill slot${(slots - free) - paidBefore > 1 ? 's' : ''}, but only ${Math.max(0, left)} ${left === 1 ? 'is' : 'are'} left. Mark more ranks as granted free, or free up a slot.`);
         return;
     }
@@ -877,4 +896,4 @@ window.saveCharacterSkill = saveCharacterSkill;
 window.upgradeSkillSlot = upgradeSkillSlot;
 window.downgradeSkillSlot = downgradeSkillSlot;
 window.removeSkill = removeSkill;
-window.syncSkillsUI = syncSkillsUI;
+window.syncSkillsUI = syncSkillsUI;

@@ -23,35 +23,32 @@
                 <select id="character-roster" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; min-height: 40px; border-radius: 2px; text-align: left; max-width: 280px; font-size: 1rem;">
                     <option value="">-- Select Character --</option>
                 </select>
-                <button id="delete-char-btn" type="button" class="btn btn-danger" style="display: none;">Delete</button>
-
-                <!-- КНОПКИ EXPORT / IMPORT -->
-                <button type="button" id="export-json-btn" class="btn" onclick="exportCharacterJSON()" title="Save this character as a file: a backup, or to import on another computer">
-                    <span data-icon="export" data-size="18"></span>
-                    Export
-                </button>
-
-                <button type="button" id="import-json-btn" class="btn" onclick="triggerImportJSON()" title="Load a character file as a new character (nothing is overwritten)">
-                    <span data-icon="import" data-size="18"></span>
-                    Import
-                </button>
+                <!-- File menu: export, import, history, backups, delete (js/app.js) -->
+                <div class="file-menu-wrap" id="file-menu-wrap">
+                    <button type="button" id="file-menu-btn" class="btn" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu" onclick="toggleFileMenu()">
+                        File <span class="file-menu-caret" aria-hidden="true">&#9662;</span>
+                    </button>
+                    <div id="file-menu" class="file-menu" role="menu" aria-labelledby="file-menu-btn" hidden>
+                        <button type="button" role="menuitem" id="export-json-btn" class="file-menu-item" onclick="exportCharacterJSON()" title="Save this character as a file: a backup, or to import on another computer"><span data-icon="export" data-size="16"></span> Export character file</button>
+                        <button type="button" role="menuitem" id="import-json-btn" class="file-menu-item" onclick="triggerImportJSON()" title="Load a character file as a new character (nothing is overwritten)"><span data-icon="import" data-size="16"></span> Import character file</button>
+                        <button type="button" role="menuitem" id="history-btn" class="file-menu-item" onclick="openHistoryModal()" title="Earlier versions of this character"><span data-icon="hourglass" data-size="16"></span> History</button>
+                        <button type="button" role="menuitem" id="backups-btn" class="file-menu-item" onclick="openBackupsModal()" title="Copies of every character: weekly, before each level-up, or now"><span data-icon="vault" data-size="16"></span> Backups</button>
+                        <button type="button" role="menuitem" id="delete-char-btn" class="file-menu-item danger" style="display: none;"><span data-icon="close" data-size="16"></span> Delete character</button>
+                    </div>
+                </div>
 
                 <button type="button" id="summary-btn" class="btn" onclick="openCharacterSummary()" title="A clean read-only summary to show your DM: print it or save it as a page">
                     <span data-icon="print" data-size="18"></span>
                     Summary
                 </button>
 
-                <button type="button" onclick="openHistoryModal()" id="history-btn" class="btn" title="Earlier versions of this character">
-                    <span data-icon="hourglass" data-size="18"></span>
-                    History
-                </button>
                 <button type="button" onclick="openPartyView()" id="party-btn" class="btn" title="All party members, the party treasury, dividing treasure and XP">
                     <span data-icon="party" data-size="18"></span>
                     Party
                 </button>
                 <input type="file" id="import-json-file" accept=".json" style="display: none;" onchange="handleImportFile(event)">
 
-                <button id="new-char-btn" type="button" class="btn btn-primary" style="margin-left: auto;">+ New Character</button>
+                <button id="new-char-btn" type="button" class="btn btn-primary" style="margin-left: auto;">+ New character</button>
                 <button id="theme-toggle-btn" type="button" class="btn btn-icon" onclick="toggleTheme()" aria-label="Switch between light and dark mode" title="Switch between light and dark mode">
                     <span data-icon="candle" data-size="20"></span>
                 </button>
@@ -121,7 +118,7 @@
                 </div>
                 
                 <div class="meta-group">
-                    <label>Sub-Class</label>
+                    <label for="char-subclass">Sub-class</label>
                     <select id="char-subclass" class="stat-input">
                         <option value="">None</option>
                         <option value="Paladin">Paladin</option>
@@ -130,7 +127,7 @@
                     </select>
                 </div>
                 <div class="meta-group" id="subclass-level-group" style="display: none;">
-                    <label>Sub Level</label>
+                    <label for="char-sublevel">Sub-class level</label>
                     <input type="number" id="char-sublevel" class="stat-input" value="1" style="border-bottom: 1px solid var(--border-color); border-radius: 0;">
                 </div>
                 <div class="meta-group" id="arcane-start-group" style="display: none;">
@@ -140,10 +137,11 @@
                 <div class="meta-group" id="deity-group" style="display: none;">
                     <label>Deity</label>
                     <div style="display: flex; gap: 4px; align-items: center;">
-                        <select id="char-deity" class="stat-input" style="flex: 1; min-width: 0;">
+                        <select id="char-deity" class="stat-input" style="flex: 1; min-width: 0;" aria-label="Deity">
                             <option value="">None</option>
                         </select>
-                        <button type="button" id="deity-info-btn" class="btn btn-sm deity-info-btn" onclick="openDeityInfo()" title="About this Immortal (Codex Immortalis)" aria-label="About this Immortal">i</button>
+                        <span id="char-deity-fixed" class="deity-fixed" style="display: none;"></span>
+                        <button type="button" id="deity-info-btn" class="icon-btn deity-info-btn" onclick="openDeityInfo()" title="About this Immortal (Codex Immortalis)" aria-label="About this Immortal"><span data-icon="info" data-size="16"></span></button>
                     </div>
                 </div>
 
@@ -156,7 +154,7 @@
                         <label>Hit Dice</label>
                     </div>
                     <input type="text" id="char-hd" class="stat-input" value="d4" readonly>
-                    <span id="header-hp-formula" style="font-size: 0.65rem; color: var(--accent-gold); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Total Hit Dice formula"></span>
+                    <span id="header-hp-formula" style="font-size: 0.72rem; color: var(--accent-gold); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Total Hit Dice formula"></span>
                 </div>
                 <div class="meta-group">
                     <label>Alignment</label>
@@ -165,6 +163,10 @@
                         <option value="Neutral" selected>Neutral</option>
                         <option value="Chaotic">Chaotic</option>
                     </select>
+                </div>
+                <!-- Class, level and XP are locked until Edit is pressed (js/app.js) -->
+                <div class="meta-group lv-lock-group" id="lv-lock-group" style="display: none;">
+                    <button type="button" id="lv-lock-btn" class="btn btn-sm lv-lock-btn" aria-pressed="false" onclick="toggleLevelsLock()" title="Class, sub-class, level and XP change through XP awards and the level-up window. Edit them by hand here."><span data-icon="lock" data-size="14"></span> <span id="lv-lock-text">Edit</span></button>
                 </div>
             </div>
             <!-- Game calendar and clock (js/calendar.js) -->
@@ -184,6 +186,9 @@
             <button type="button" class="tab-btn" onclick="switchTab('tab-dominion')">Dominion</button>
             <button type="button" class="tab-btn" onclick="switchTab('tab-notes')" id="btn-tab-notes">Notes</button>
         </div>
+
+        <!-- Status strip: hit points, damage/heal, AC, THAC0, spells left (js/combat.js) -->
+        <div id="status-strip" class="status-strip" role="region" aria-label="Character status" style="display: none;"></div>
 
         <!-- ВКЛАДКА 1: CORE & XP -->
         <div id="tab-core" class="tab-content active-tab">
@@ -215,7 +220,7 @@
                     <div class="ability-row">
                         <div class="ability-info">
                             <span class="ability-name">Dexterity</span>
-                            <span class="ability-desc">Missile/thrown weapons, armor class (harder to hit).</span>
+                            <span class="ability-desc">Missile/thrown weapons, armour class (harder to hit).</span>
                         </div>
                         <div class="ability-values"><input type="number" class="stat-input ability-score" id="dex-score"><input type="text" class="stat-input ability-mod" id="dex-mod" readonly aria-label="DEX modifier"></div>
                     </div>
@@ -277,12 +282,12 @@
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border-color); padding-left: 24px; justify-content: flex-end;">
-                        <input type="text" id="calc-xp-source" class="stat-input" placeholder="Source or session (optional, for the log)" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;">
+                        <input type="text" id="calc-xp-source" class="stat-input" placeholder="Source or session (optional, for the log)" aria-label="Source or session" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;">
                         <div style="display: flex; gap: 10px;">
                             <input type="number" id="calc-xp-monster" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; flex: 1;" placeholder="Monster XP">
                             <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
                                 <input type="number" id="calc-xp-treasure" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%;" placeholder="Treasure XP (GP)">
-                                <button type="button" onclick="openLootModal()" style="background: color-mix(in srgb, var(--accent-gold) 15%, transparent); border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 8px 10px; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Open Coin & Loot Calculator">
+                                <button type="button" class="icon-btn loot-open-btn" onclick="openLootModal()" title="Open the coin and treasure calculator" aria-label="Open the coin and treasure calculator">
                                 <span data-icon="coin" data-size="16"></span>
                             </button>
                             </div>
@@ -296,7 +301,7 @@
                         
                         <div style="font-size: 0.85rem; color: var(--good); min-height: 1.2em;" id="xp-preview"></div>
 
-                        <button id="add-xp-btn" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 10px; border-radius: 2px; font-weight: bold; cursor: pointer; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Calculate & Add XP</button>
+                        <button type="button" id="add-xp-btn" class="btn btn-sm btn-accent xp-add-btn">Calculate &amp; add XP</button>
                         <div style="font-size: 0.85rem; color: var(--text-muted); min-height: 1.2em;" id="xp-message"></div>
                     </div>
                 </div>
@@ -304,7 +309,7 @@
 
             <!-- ОПЫТ ПОДКЛАССА -->
             <div class="card xp-card" id="subclass-xp-card" style="display: none;">
-                <h2>Sub-Class Experience (<span id="subclass-name-badge"></span>)</h2>
+                <h2>Sub-class experience (<span id="subclass-name-badge"></span>)</h2>
                 <div class="xp-calculator" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
                     
                     <div class="xp-ledger">
@@ -322,6 +327,7 @@
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border-color); padding-left: 24px; justify-content: flex-end;">
+                        <input type="text" id="sub-calc-xp-source" class="stat-input" placeholder="Source or session (optional, for the log)" aria-label="Source or session" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;">
                         <div style="display: flex; gap: 10px;">
                             <input type="number" id="sub-calc-xp-monster" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;" placeholder="Monster XP">
                             <input type="number" id="sub-calc-xp-treasure" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left;" placeholder="Treasure XP">
@@ -335,7 +341,7 @@
                         
                         <div style="font-size: 0.85rem; color: var(--good); min-height: 1.2em;" id="sub-xp-preview"></div>
                         
-                        <button id="sub-add-xp-btn" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 10px; border-radius: 2px; font-weight: bold; cursor: pointer; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Calculate & Add Sub-XP</button>
+                        <button type="button" id="sub-add-xp-btn" class="btn btn-sm btn-accent xp-add-btn">Calculate &amp; add sub-class XP</button>
                         <div style="font-size: 0.85rem; color: var(--text-muted); min-height: 1.2em;" id="sub-xp-message"></div>
                     </div>
                 </div>
@@ -386,6 +392,11 @@
                             <label for="hp-temp">Temporary HP</label>
                             <input type="number" id="hp-temp" class="stat-input small-field" style="color: var(--info);" value="0" min="0">
                         </div>
+                        <div class="detail hp-adjust" role="group" aria-label="Damage or heal">
+                            <input type="number" id="hp-adjust-amount" class="hp-adjust-input small-field" min="0" placeholder="0" aria-label="Amount of damage or healing">
+                            <button type="button" class="btn btn-sm hp-dmg-btn" onclick="hpApplyAmount('damage', 'hp-adjust-amount')" title="Takes temporary hit points first, then current hit points">Damage</button>
+                            <button type="button" class="btn btn-sm hp-heal-btn" onclick="hpApplyAmount('heal', 'hp-adjust-amount')" title="Restores current hit points up to the maximum">Heal</button>
+                        </div>
                     </div>
 
                     <!-- ARMOUR CLASS -->
@@ -417,8 +428,9 @@
                         <span class="sub"><span id="speed-encounter">40'</span> a round · <span id="speed-running">120'</span> running</span>
                         <span class="sub" id="speed-fly" style="display: none;"></span>
                         <div class="detail">
-                            <label for="movement-load">Load</label>
-                            <select id="movement-load" class="stat-input" style="font-size: 0.9rem; width: auto; min-width: 0; max-width: 100%; flex: 0 1 auto; border: 1px solid var(--border-color); padding: 2px 4px; background: var(--field-bg);">
+                            <span>Load</span>
+                            <span class="load-text"><strong id="movement-load-text">Unencumbered (120')</strong> <span class="load-note">from Inventory</span></span>
+                            <select id="movement-load" class="stat-input" hidden aria-hidden="true" tabindex="-1">
                                 <option value="120">Unencumbered (120')</option>
                                 <option value="90">Light Load (90')</option>
                                 <option value="60">Heavy Load (60')</option>
@@ -477,7 +489,7 @@
                 <div id="class-proficiencies-banner" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px dotted var(--border-color);">
                     <div>
                         <div class="eyebrow">Armour &amp; Shields</div>
-                        <div id="prof-armor-display" style="font-size: 1.05rem; margin-top: 2px;">Any armor, Shields allowed</div>
+                        <div id="prof-armor-display" style="font-size: 1.05rem; margin-top: 2px;">Any armour, shields allowed</div>
                     </div>
                     <div>
                         <div class="eyebrow">Weapons</div>
@@ -555,7 +567,7 @@
                         <button type="button" class="btn btn-sm btn-accent" onclick="openAddSkillModal()">+ Learn Skill</button>
                     </div>
                 </div>
-                <p class="sub-caption" style="margin-bottom: 10px;">Roll d20 equal to or under the target. A natural 1 always succeeds and a 20 always fails. Each extra slot spent on a skill raises its target by 1. The DM may add circumstance modifiers. Skills granted by race, class, background or the DM use no slots: tick “Granted free” when learning, or click a skill's slot count to change how many ranks are free.</p>
+                <p class="sub-caption" style="margin-bottom: 10px;">Roll d20 equal to or under the target. A natural 1 always succeeds and a 20 always fails. Each extra slot spent on a skill raises its target by 1. The DM may add circumstance modifiers. Skills granted by race, class, background or the DM use no slots: tick “Granted free” when learning, or use a skill's pencil to change how many ranks are free. Click a description to read all of it.</p>
                 <div class="ledger skill-ledger">
                     <div class="ledger-row ledger-headings" aria-hidden="true">
                         <span class="eyebrow">Skill</span><span class="eyebrow">Ability</span><span class="eyebrow">Target</span><span class="eyebrow">Slots</span><span class="eyebrow">What it does</span><span></span>
@@ -658,7 +670,7 @@
                             <span id="active-magic-count" style="font-size: 0.7rem; color: var(--text-muted);">0 active</span>
                         </div>
                         
-                        <div id="paperdoll-effects-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 330px; overflow-y: auto; padding-right: 4px;">
+                        <div id="paperdoll-effects-list" style="display: flex; flex-direction: column; gap: 8px;">
                             <!-- Динамические карточки магических эффектов -->
                         </div>
                     </div>
@@ -704,7 +716,7 @@
                             <span style="font-size: 0.7rem; color: var(--text-muted); margin-left: 4px;">(weighs 1 cn/coin)</span>
                         </div>
                         <div style="display: flex; gap: 6px;">
-                            <button type="button" onclick="openCoinTransferModal()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Transfer specific amount"><span data-icon="swap" data-size="14"></span> Transfer</button>
+                            <button type="button" onclick="openCoinTransferModal('deposit')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Move some coins from the pouch to the Vault"><span data-icon="swap" data-size="14"></span> Transfer</button>
                             <button type="button" onclick="transferAllCoins('toVault')" style="background: transparent; color: var(--info); border: 1px solid var(--info); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Move all carried coins into Vault"><span data-icon="arrowRight" data-size="14"></span> All to Vault</button>
                         </div>
                     </div>
@@ -718,7 +730,7 @@
                     </div>
 
                     <div style="border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 8px;">
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">Carried Gems & Valuables:</div>
+                        <div class="inv-gems-head"><span>Gems &amp; valuables with you</span><button type="button" class="btn btn-sm" onclick="addValuableItem('Pouch')">+ Add gem / valuable</button></div>
                         <div id="pouch-gems-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;"></div>
                     </div>
                 </div>
@@ -731,7 +743,7 @@
                             <span style="font-size: 0.7rem; color: var(--good); margin-left: 4px;">(0 cn weight)</span>
                         </div>
                         <div style="display: flex; gap: 6px;">
-                            <button type="button" onclick="openCoinTransferModal()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Transfer specific amount"><span data-icon="swap" data-size="14"></span> Transfer</button>
+                            <button type="button" onclick="openCoinTransferModal('withdraw')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Move some coins from the Vault to the pouch"><span data-icon="swap" data-size="14"></span> Transfer</button>
                             <button type="button" onclick="transferAllCoins('toPouch')" style="background: transparent; color: var(--good); border: 1px solid var(--good); padding: 2px 8px; border-radius: 2px; font-size: 0.7rem; cursor: pointer;" title="Withdraw all coins into Pouch"><span data-icon="arrowLeft" data-size="14"></span> All to Pouch</button>
                         </div>
                     </div>
@@ -745,7 +757,7 @@
                     </div>
 
                     <div style="border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 8px;">
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">Stored Gems & Art:</div>
+                        <div class="inv-gems-head"><span>Stored gems, valuables &amp; art</span><button type="button" class="btn btn-sm" onclick="addValuableItem('Vault')">+ Add gem / valuable</button></div>
                         <div id="vault-gems-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;"></div>
                     </div>
                 </div>
@@ -757,7 +769,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 14px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <h2 style="border: none; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px;"><span data-icon="bag" data-size="20"></span> Bags of Holding</h2>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Holds up to 10,000 cn; weighs 600 cn full / 60 cn empty)</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Holds up to 10,000 cn; weighs 600 cn full / <span id="boh-empty-cn">10</span> cn empty)</span>
                     </div>
                     <button type="button" onclick="addNewBagOfHolding()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">+ Add Bag of Holding</button>
                 </div>
@@ -784,7 +796,7 @@
             </div>
 
             <div class="inv-toolbar" role="group" aria-label="Sort and filter items">
-                <label class="inv-tool inv-search-tool"><span data-icon="eye" data-size="14"></span>
+                <label class="inv-tool inv-search-tool"><span data-icon="search" data-size="14"></span>
                     <input type="search" id="inv-search" class="stat-input" placeholder="Search items…" autocomplete="off" oninput="setInventorySearch(this.value)" onkeydown="if (event.key === 'Escape') { this.value = ''; setInventorySearch(''); }" aria-label="Search items">
                 </label>
                 <label class="inv-tool">Sort
@@ -814,7 +826,7 @@
                             <span data-icon="sword" data-size="18"></span>
                             Weapons & Ammunition
                         </h2>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Carried weapons, quivers & missiles)</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(Weapons, quivers &amp; missiles)</span>
                     </div>
                     <div style="display: flex; gap: 6px;">
                         <button type="button" onclick="openCatalogue('weapons')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Catalogue</button>
@@ -854,7 +866,7 @@
                             <span data-icon="flask" data-size="18"></span>
                             Magic Items
                         </h2>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">(<span id="magic-items-count">0</span> carried · potions, scrolls, wands, rings, wondrous items)</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">(<span id="magic-items-count">0 carried</span> · potions, scrolls, wands, rings, wondrous items)</span>
                     </div>
                     <div style="display: flex; gap: 6px;">
                         <button type="button" onclick="openCatalogue('magic')" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; font-weight: 500;">Catalogue</button>
@@ -896,7 +908,7 @@
                                         <span style="font-size: 0.65rem; font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;">Upload Portrait</span>
                                     </div>
                                 </div>
-                                <button type="button" id="portrait-remove-btn" onclick="removePortrait()" style="display: none; background: transparent; border: none; color: var(--danger); font-size: 0.7rem; cursor: pointer; padding: 2px 6px;">Remove Image</button>
+                                <button type="button" id="portrait-remove-btn" class="btn btn-sm bio-img-remove" onclick="removePortrait()" style="display: none;">Remove image</button>
                                 <input type="file" id="portrait-file-input" accept="image/*" style="display: none;" onchange="handlePortraitFile(event)">
 
                                 <div id="heraldry-frame" class="heraldry-frame" onclick="triggerHeraldryUpload()" title="Click to upload a coat of arms, holy symbol or personal sigil">
@@ -906,7 +918,7 @@
                                         <span>Heraldry</span>
                                     </div>
                                 </div>
-                                <button type="button" id="heraldry-remove-btn" onclick="removeHeraldry()" style="display: none; background: transparent; border: none; color: var(--danger); font-size: 0.7rem; cursor: pointer; padding: 2px 6px;">Remove Arms</button>
+                                <button type="button" id="heraldry-remove-btn" class="btn btn-sm bio-img-remove" onclick="removeHeraldry()" style="display: none;">Remove arms</button>
                                 <input type="file" id="heraldry-file-input" accept="image/*" style="display: none;" onchange="handleHeraldryFile(event)">
                             </div>
 
@@ -935,7 +947,7 @@
                                     <div class="bio-bday-row">
                                         <select id="bio-bday-day" class="stat-input" aria-label="Day of birth"><option value="">Day</option></select>
                                         <select id="bio-bday-month" class="stat-input" aria-label="Month of birth"><option value="">Month</option></select>
-                                        <input type="number" id="bio-bday-year" class="stat-input" placeholder="Year AC (optional)" aria-label="Year of birth (AC)">
+                                        <input type="number" id="bio-bday-year" class="stat-input" placeholder="Year AC (optional)" title="Year of birth (AC), optional" aria-label="Year of birth (AC)">
                                         <button type="button" id="bio-bday-clear" class="icon-btn" onclick="clearBirthday()" title="Clear the birthday" aria-label="Clear the birthday" style="display: none;"></button>
                                     </div>
                                     <div id="bio-bday-hint" class="sub-caption" style="margin-top: 3px;"></div>
@@ -955,7 +967,7 @@
 
                                 <div>
                                     <label style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Languages Known:</label>
-                                    <input type="text" id="bio-languages" class="stat-input" placeholder="Common, Alignment, Elvish..." style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%;">
+                                    <textarea id="bio-languages" class="stat-input bio-grow" rows="1" placeholder="Common, Alignment, Elvish..." aria-label="Languages known" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%;"></textarea>
                                     <div id="bio-languages-hint" class="sub-caption" style="margin-top: 3px;"></div>
                                 </div>
 
@@ -1043,39 +1055,43 @@
     <!-- МОДАЛЬНОЕ ОКНО ДЛЯ СОЗДАНИЯ ЗАКЛИНАНИЯ -->
     <div id="custom-spell-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
         <div class="card" style="width: 400px; display: flex; flex-direction: column; gap: 16px;">
-            <h2 id="custom-spell-title" style="margin-bottom: 0;">Create Custom Spell</h2>
-            <input type="text" id="new-spell-name" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Spell Name">
-            <div style="display: flex; gap: 12px; align-items: center;">
-            <label style="color: var(--text-muted); font-size: 0.85rem;">Spell Tier:</label>
-            <input type="number" id="new-spell-level" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; width: 80px;" min="1" max="9" value="1">
-        </div>
-        <input type="text" id="new-spell-range" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Range (e.g., 10', 120', Touch)">
-        <input type="text" id="new-spell-duration" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Duration (e.g., 2d6 turns, Instantaneous)">
-        <input type="text" id="new-spell-effect" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left;" placeholder="Effect (e.g., One door, gate, or portal)">
-        <textarea id="new-spell-desc" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; text-align: left; resize: vertical; min-height: 80px;" placeholder="Spell Description..."></textarea>
+            <div class="mag-modal-head">
+                <h2 id="custom-spell-title" style="margin: 0; border: none; padding: 0;">Create custom spell</h2>
+                <button type="button" class="icon-btn" onclick="magCloseSpellModalAsk()" aria-label="Close"><span data-icon="close" data-size="14"></span></button>
+            </div>
+            <div class="mag-form-row">
+                <label class="mag-field" style="flex: 1;"><span class="eyebrow">Spell name</span><input type="text" id="new-spell-name" class="stat-input mag-input" maxlength="80"></label>
+                <label class="mag-field" style="width: 96px;"><span class="eyebrow">Spell level</span><input type="number" id="new-spell-level" class="stat-input mag-input" min="1" max="9" value="1"></label>
+            </div>
+            <label class="mag-field"><span class="eyebrow">Range</span><input type="text" id="new-spell-range" class="stat-input mag-input" placeholder="e.g. 10', 120', touch"></label>
+            <label class="mag-field"><span class="eyebrow">Duration</span><input type="text" id="new-spell-duration" class="stat-input mag-input" placeholder="e.g. 2d6 turns, instantaneous"></label>
+            <label class="mag-field"><span class="eyebrow">Effect</span><input type="text" id="new-spell-effect" class="stat-input mag-input" placeholder="e.g. one door, gate or portal"></label>
+            <label class="mag-field"><span class="eyebrow">Description</span><textarea id="new-spell-desc" class="stat-input mag-input" style="resize: vertical; min-height: 80px;"></textarea></label>
         <label id="new-spell-researched-row" class="arc-check" style="display: none; font-size: 0.85rem;" title="GAZ3 p. 66: 10% of the gold spent on each spell discovered is added to your library"><input type="checkbox" id="new-spell-researched"> I researched it: add 10% of its cost (1,000 dc × level) to my library</label>
             <div style="display: flex; justify-content: flex-end; gap: 12px;">
-                <button onclick="closeSpellModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
-                <button id="custom-spell-save" onclick="saveCustomSpell()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Save Spell</button>
+                <button type="button" class="btn btn-sm" onclick="closeSpellModal()">Cancel</button>
+                <button type="button" id="custom-spell-save" class="btn btn-sm btn-accent" onclick="saveCustomSpell()">Save spell</button>
             </div>
         </div>
     </div>
 
     <!-- МОДАЛЬНОЕ ОКНО КОМПЕНДИУМА -->
     <div id="compendium-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
-        <div class="card" style="width: 420px; display: flex; flex-direction: column; gap: 16px;">
-            <h2 style="margin-bottom: 0;">Add from Compendium</h2>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-                <label style="color: var(--text-muted); font-size: 0.85rem;">Select Arcane Spell:</label>
-                <input type="search" id="compendium-search" class="stat-input select-search" placeholder="Search spells…" autocomplete="off" oninput="filterSelectOptions('compendium-select', this.value)" aria-label="Search the compendium">
-                <select id="compendium-select" class="stat-input" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%;">
-                </select>
+        <div class="card mag-comp-card">
+            <div class="mag-modal-head">
+                <h2 style="margin: 0; border: none; padding: 0;">Add from Compendium</h2>
+                <button type="button" class="icon-btn" onclick="closeCompendiumModal()" aria-label="Close"><span data-icon="close" data-size="14"></span></button>
             </div>
-            <div id="compendium-preview" style="color: var(--text-muted); font-size: 0.8rem; line-height: 1.4; border-left: 2px solid var(--accent-gold-dim); padding-left: 8px; min-height: 48px;"></div>
+            <label class="mag-field"><span class="eyebrow">Search arcane spells</span>
+                <input type="search" id="compendium-search" class="stat-input mag-input" placeholder="Name or words in the description" autocomplete="off" oninput="renderCompendiumList()" onkeydown="if (event.key === 'Escape' && this.value) { event.preventDefault(); this.value = ''; renderCompendiumList(); }"></label>
+            <div class="mag-comp-body">
+                <div id="compendium-list" class="mag-comp-list" aria-label="Compendium spells"></div>
+                <div id="compendium-preview" class="mag-comp-preview" aria-live="polite"></div>
+            </div>
             <label id="compendium-researched-row" class="arc-check" style="display: none; font-size: 0.85rem;" title="GAZ3 p. 66: 10% of the gold spent on each spell discovered is added to your library"><input type="checkbox" id="compendium-researched"> I researched it: add 10% of its cost (1,000 dc × level) to my library</label>
             <div style="display: flex; justify-content: flex-end; gap: 12px;">
-                <button onclick="closeCompendiumModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
-                <button onclick="addSpellFromCompendium()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Add to Spellbook</button>
+                <button type="button" class="btn btn-sm" onclick="closeCompendiumModal()">Cancel</button>
+                <button type="button" id="compendium-add" class="btn btn-sm btn-accent" onclick="addSpellFromCompendium()" disabled>Add</button>
             </div>
         </div>
     </div>
@@ -1114,7 +1130,7 @@
             <div style="border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <label style="font-size: 0.8rem; color: var(--accent-gold); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;">Personal Claimed Gems & Art (Not split)</label>
-                    <button type="button" onclick="addLootItemRow()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 2px 8px; font-size: 0.75rem; cursor: pointer;">+ Add Item</button>
+                    <button type="button" class="btn btn-sm" onclick="addLootItemRow()">+ Add item</button>
                 </div>
                 <div id="loot-items-container" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; padding-right: 4px;">
                     <!-- Динамические строки предметов будут добавляться сюда -->
@@ -1145,13 +1161,13 @@
 
             <!-- Кнопки управления -->
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px;">
-                <button type="button" id="loot-copy-btn" onclick="copyLootSummary()" style="background: transparent; color: var(--info); border: 1px solid var(--info); padding: 8px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                <button type="button" id="loot-copy-btn" class="btn btn-sm" onclick="copyLootSummary()">
                     <span data-icon="copy" data-size="18"></span>
-                    <span>Copy for Party</span>
+                    <span>Copy for party</span>
                 </button>
                 <div style="display: flex; gap: 8px;">
-                    <button type="button" onclick="closeLootModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 14px; border-radius: 2px; cursor: pointer;">Cancel</button>
-                    <button type="button" onclick="applyLootCalculation()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 14px; border-radius: 2px; cursor: pointer; font-weight: bold;">Apply to Sheet</button>
+                    <button type="button" class="btn btn-sm" onclick="closeLootModal()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-accent" onclick="applyLootCalculation()">Apply to sheet</button>
                 </div>
             </div>
         </div>
@@ -1159,66 +1175,50 @@
 
     <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ПРЕДМЕТА -->
     <div id="item-modal" onclick="handleItemModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
-        <div class="card" style="width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+        <div class="card item-form" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" style="width: min(460px, calc(100vw - 24px)); max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
-                <h2 id="item-modal-title" style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Add Inventory Item</h2>
-                <button type="button" onclick="closeAddItemModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
-            </div>
-            
-            <div>
-                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Item Name:</label>
-                <input type="text" id="item-name-input" class="stat-input" placeholder="e.g. Wand of Paralyzation, Ring of Protection" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
+                <h2 id="item-modal-title" style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Add an item</h2>
+                <button type="button" class="icon-btn" onclick="closeAddItemModal()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <div>
-                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Quantity:</label>
-                    <input type="number" id="item-qty-input" class="stat-input" value="1" min="1" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px;">
-                </div>
-                <div>
-                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Weight (cn each):</label>
-                    <input type="number" id="item-weight-input" class="stat-input" value="10" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; width: 100%; margin-top: 2px;">
-                </div>
-            </div>
+            <label class="arc-field"><span class="eyebrow">Name</span>
+                <input type="text" id="item-name-input" class="stat-input arc-input" placeholder="e.g. Wand of Paralysation, Ring of Protection"></label>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <div>
-                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Category:</label>
-                    <select id="item-category-select" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
-                        <option value="equipment" selected>General Equipment</option>
+            <div class="item-form-grid">
+                <label class="arc-field"><span class="eyebrow">Quantity</span>
+                    <input type="number" id="item-qty-input" class="stat-input arc-input" value="1" min="1"></label>
+                <label class="arc-field"><span class="eyebrow">Weight (cn each)</span>
+                    <input type="number" id="item-weight-input" class="stat-input arc-input" value="0" min="0"></label>
+                <label class="arc-field"><span class="eyebrow">Value (gp each)</span>
+                    <input type="number" id="item-cost-input" class="stat-input arc-input" min="0" step="any" placeholder="e.g. 50" title="What one is worth: used by the For trade total and the Value sort"></label>
+                <label class="arc-field"><span class="eyebrow">Category</span>
+                    <select id="item-category-select" class="stat-input arc-input">
+                        <option value="equipment" selected>General equipment</option>
                         <option value="weapon">Weapon</option>
-                        <option value="ammo">Ammunition (Arrows / Bolts)</option>
-                        <option value="consumable">Consumable (Rations / Torches)</option>
-                    </select>
-                </div>
-                <div>
-                    <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Location / Container:</label>
-                    <select id="item-location-input" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
-                    </select>
-                </div>
+                        <option value="ammo">Ammunition (arrows, bolts)</option>
+                        <option value="consumable">Consumable (rations, torches)</option>
+                    </select></label>
+                <label class="arc-field" style="grid-column: span 2;"><span class="eyebrow">Kept in</span>
+                    <select id="item-location-input" class="stat-input arc-input"></select></label>
             </div>
 
             <!-- МАГИЧЕСКИЕ НАСТРОЙКИ -->
             <div style="border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 8px; display: flex; flex-direction: column; gap: 8px;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                    <div>
-                        <label style="font-size: 0.7rem; color: var(--accent-gold); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; font-weight: bold;">Magic Bonus:</label>
-                        <select id="item-magic-bonus" class="stat-input" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; text-align: left; width: 100%; margin-top: 2px;">
-                            <option value="0">0 (Mundane)</option>
-                            <option value="1">+1 Enchantment</option>
-                            <option value="2">+2 Enchantment</option>
-                            <option value="3">+3 Enchantment</option>
-                            <option value="4">+4 Enchantment</option>
-                            <option value="5">+5 Enchantment</option>
-                            <option value="-1">-1 (Cursed)</option>
-                            <option value="-2">-2 (Cursed)</option>
-                            <option value="-3">-3 (Cursed)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Charges (optional):</label>
-                        <input type="number" id="item-charges-input" class="stat-input" placeholder="e.g. 20" min="0" style="border: 1px solid var(--border-color); padding: 5px; border-radius: 2px; width: 100%; margin-top: 2px;">
-                    </div>
+                <div class="item-form-grid">
+                    <label class="arc-field"><span class="eyebrow">Magic bonus</span>
+                        <select id="item-magic-bonus" class="stat-input arc-input">
+                            <option value="0">0 (none)</option>
+                            <option value="1">+1</option>
+                            <option value="2">+2</option>
+                            <option value="3">+3</option>
+                            <option value="4">+4</option>
+                            <option value="5">+5</option>
+                            <option value="-1">-1</option>
+                            <option value="-2">-2</option>
+                            <option value="-3">-3</option>
+                        </select></label>
+                    <label class="arc-field"><span class="eyebrow">Charges (optional)</span>
+                        <input type="number" id="item-charges-input" class="stat-input arc-input" placeholder="e.g. 20" min="0"></label>
                 </div>
 
                 <!-- Magic item and its kind (it then shows under Magic Items) -->
@@ -1249,12 +1249,12 @@
                     <div class="sub-caption" style="grid-column: 1 / -1;">Armour and shields are put on with Equip; their magic bonus improves AC too. AC and save bonuses (ring or cloak of protection...) count while the item is worn, or always if “works while carried” is ticked.</div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label style="font-size: 0.75rem; color: var(--danger); display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" id="item-is-cursed"> <span data-icon="skull" data-size="14"></span> Cursed Item
+                <div class="item-flags">
+                    <label class="item-effects-check" style="color: var(--danger);">
+                        <input type="checkbox" id="item-is-cursed"> <span data-icon="skull" data-size="14"></span> Cursed
                     </label>
-                    <label style="font-size: 0.75rem; color: var(--info); display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" id="item-requires-concentration"> <span data-icon="eye" data-size="14"></span> Requires Concentration
+                    <label class="item-effects-check" style="color: var(--info);">
+                        <input type="checkbox" id="item-requires-concentration"> <span data-icon="eye" data-size="14"></span> Requires concentration
                     </label>
                 </div>
 
@@ -1274,17 +1274,15 @@
                     <div class="sub-caption">Effects apply while the item is worn (equipped on the paperdoll), or always if “works while carried” is ticked.</div>
                 </div>
 
-                <div>
-                    <label style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Magic Effect / Description:</label>
-                    <textarea id="item-desc-input" class="stat-input" placeholder="Rules text or special powers..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; width: 100%; min-height: 48px; resize: vertical; margin-top: 2px; font-size: 0.75rem;"></textarea>
-                </div>
+                <label class="arc-field"><span class="eyebrow">Description / magic effect</span>
+                    <textarea id="item-desc-input" class="stat-input arc-input" placeholder="Rules text or special powers..." style="min-height: 56px; resize: vertical;"></textarea></label>
             </div>
 
             <div id="item-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px; border-radius: 2px; font-size: 0.75rem;"></div>
 
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
-                <button type="button" onclick="closeAddItemModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
-                <button type="button" id="item-modal-save" onclick="saveInventoryItem()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 14px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Add Item</button>
+                <button type="button" class="btn btn-sm" onclick="closeAddItemModal()">Cancel</button>
+                <button type="button" class="btn btn-sm btn-accent" id="item-modal-save" onclick="saveInventoryItem()">Add item</button>
             </div>
         </div>
     </div>
@@ -1293,7 +1291,7 @@
     <div id="weapon-modal" onclick="handleWeaponModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
         <div class="card" style="width: 400px; display: flex; flex-direction: column; gap: 14px;" onclick="event.stopPropagation();">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
-                <h2 style="border: none; padding: 0; margin: 0;">Train Weapon Feat</h2>
+                <h2 id="weapon-modal-title" style="border: none; padding: 0; margin: 0;">Learn a weapon</h2>
                 <button type="button" onclick="closeAddWeaponModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
             </div>
             
@@ -1308,21 +1306,25 @@
                 </select>
             </div>
 
-            <div>
-                <label style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Proficiency Level:</label>
+            <div id="weapon-mode-group" class="wpn-mode" role="radiogroup" aria-label="How to add the weapon" style="display: none;">
+                <label class="wpn-mode-opt"><input type="radio" name="weapon-add-mode" id="weapon-mode-train" value="train" onchange="setWeaponAddMode('train')"> <span><strong>Train it</strong><span class="sub-caption">Learns it at Basic over a week with a trainer (Training panel)</span></span></label>
+                <label class="wpn-mode-opt"><input type="radio" name="weapon-add-mode" id="weapon-mode-direct" value="direct" onchange="setWeaponAddMode('direct')"> <span><strong>Add directly</strong><span class="sub-caption">Set its rank now, without training</span></span></label>
+            </div>
+            <div id="weapon-rank-group">
+                <label for="weapon-rank-select" style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Rank</label>
                 <select id="weapon-rank-select" class="stat-input" onchange="updateWeaponCostPreview()" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; width: 100%; margin-top: 4px;">
                 </select>
-                <div id="weapon-cost-preview" style="font-size: 0.75rem; color: var(--accent-gold); margin-top: 6px;">Feat Cost: 1 slot(s)</div>
             </div>
+            <div id="weapon-cost-preview" style="font-size: 0.8rem; color: var(--accent-gold);">Costs 1 weapon feat</div>
 
             <div id="weapon-modal-hint" class="sub-caption" style="margin: 0;"></div>
             <!-- Предупреждение об ошибке валидации -->
             <div id="weapon-modal-error" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 8px; border-radius: 2px; font-size: 0.8rem; line-height: 1.3;"></div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
-                <button type="button" onclick="closeAddWeaponModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 2px; cursor: pointer;">Cancel</button>
-                <button type="button" id="weapon-modal-train" class="btn btn-sm btn-accent" onclick="saveCharacterWeapon(false)" style="display: none;">Begin Training</button>
-                <button type="button" id="weapon-modal-save" onclick="saveCharacterWeapon(true)" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 2px; cursor: pointer; font-weight: bold;">Train Feat</button>
+                <button type="button" class="btn btn-sm" onclick="closeAddWeaponModal()">Cancel</button>
+                <button type="button" id="weapon-modal-train" class="btn btn-sm btn-accent" onclick="saveCharacterWeapon(false)" style="display: none;">Begin training</button>
+                <button type="button" id="weapon-modal-save" class="btn btn-sm btn-accent" onclick="saveCharacterWeapon(true)">Learn weapon</button>
             </div>
         </div>
     </div>
@@ -1519,40 +1521,41 @@
 
     <!-- МОДАЛЬНОЕ ОКНО ЭКИПИРОВКИ СЛОТА -->
     <div id="paperdoll-modal" onclick="handlePaperdollModalBackdrop(event)" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
-        <div class="card" style="width: 380px; display: flex; flex-direction: column; gap: 12px;" onclick="event.stopPropagation();">
+        <div class="card pd-modal-card" role="dialog" aria-modal="true" aria-labelledby="paperdoll-modal-title" onclick="event.stopPropagation();">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">
-                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;" id="paperdoll-modal-title">Equip Slot</h2>
+                <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;" id="paperdoll-modal-title">Equip</h2>
                 <button type="button" onclick="closePaperdollModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
             </div>
 
             <div id="paperdoll-modal-warning" style="display: none; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); color: var(--danger); padding: 6px 8px; border-radius: 2px; font-size: 0.75rem; line-height: 1.3;"></div>
 
-            <div id="paperdoll-options-container" style="display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto;">
+            <div id="paperdoll-options-container" style="display: flex; flex-direction: column; gap: 6px;">
                 <!-- Варианты экипировки -->
             </div>
 
             <!-- Ручной ввод предмета в #paperdoll-modal -->
-        <div style="border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-            <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">Or Enter Custom Item:</div>
-            <input type="text" id="custom-slot-name" class="stat-input" placeholder="Item Name (e.g. Ring of Fire Resistance)" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+        <details id="pd-custom" class="pd-custom">
+            <summary>Or enter a custom item</summary>
+            <div class="pd-custom-body">
+            <input type="text" id="custom-slot-name" class="stat-input" aria-label="Custom item name" placeholder="Item name (e.g. Ring of Fire Resistance)" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <input type="number" id="custom-slot-weight" class="stat-input" placeholder="Weight (cn)" value="10" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
-                <select id="custom-slot-magic" class="stat-input" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
-                    <option value="0">0 (Mundane)</option>
-                    <option value="1">+1 Enchantment</option>
-                    <option value="2">+2 Enchantment</option>
-                    <option value="3">+3 Enchantment</option>
-                    <option value="4">+4 Enchantment</option>
-                    <option value="5">+5 Enchantment</option>
-                    <option value="-1">-1 (Cursed)</option>
-                    <option value="-2">-2 (Cursed)</option>
-                    <option value="-3">-3 (Cursed)</option>
+                <input type="number" id="custom-slot-weight" class="stat-input" aria-label="Weight (cn)" title="Weight (cn)" placeholder="Weight (cn)" value="0" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+                <select id="custom-slot-magic" class="stat-input" aria-label="Magic bonus" title="Magic bonus" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+                    <option value="0">Magic bonus 0 (none)</option>
+                    <option value="1">+1</option>
+                    <option value="2">+2</option>
+                    <option value="3">+3</option>
+                    <option value="4">+4</option>
+                    <option value="5">+5</option>
+                    <option value="-1">-1</option>
+                    <option value="-2">-2</option>
+                    <option value="-3">-3</option>
                 </select>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <input type="number" id="custom-slot-charges" class="stat-input" placeholder="Charges (e.g. 20)" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
+                <input type="number" id="custom-slot-charges" class="stat-input" aria-label="Charges" placeholder="Charges (e.g. 20)" min="0" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left;">
                 <select id="custom-armor-base" class="stat-input" title="Armour type (base AC before enchantment)" style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; display: none;">
                     <option value="7">Leather (AC 7)</option>
                     <option value="6">Scale (AC 6)</option>
@@ -1568,17 +1571,18 @@
 
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <label style="font-size: 0.75rem; color: var(--danger); display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" id="custom-slot-cursed"> <span data-icon="skull" data-size="14"></span> Cursed Item
+                    <input type="checkbox" id="custom-slot-cursed"> <span data-icon="skull" data-size="14"></span> Cursed
                 </label>
                 <label style="font-size: 0.75rem; color: var(--info); display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" id="custom-slot-concentration"> <span data-icon="eye" data-size="14"></span> Needs Concentration
+                    <input type="checkbox" id="custom-slot-concentration"> <span data-icon="eye" data-size="14"></span> Requires concentration
                 </label>
             </div>
 
-            <textarea id="custom-slot-desc" class="stat-input" placeholder="Magical effect or rules text..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; min-height: 48px; resize: vertical; font-size: 0.75rem;"></textarea>
+            <textarea id="custom-slot-desc" class="stat-input" aria-label="Effect or rules text" placeholder="Magical effect or rules text..." style="border: 1px solid var(--border-color); padding: 6px; border-radius: 2px; text-align: left; min-height: 48px; resize: vertical; font-size: 0.75rem;"></textarea>
 
-            <button type="button" onclick="equipCustomItem()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 12px; border-radius: 2px; font-weight: bold; font-size: 0.8rem; cursor: pointer;">Equip Custom</button>
-        </div>
+            <button type="button" class="btn btn-sm btn-accent" onclick="equipCustomItem()">Equip custom item</button>
+            </div>
+        </details>
         </div>
     </div>
 
@@ -1656,7 +1660,7 @@
         <div class="card" style="width: 900px; max-width: 95vw; height: 88vh; max-height: 900px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;" onclick="event.stopPropagation();">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                 <h2 style="border: none; padding: 0; margin: 0; font-size: 1.15rem;" id="journal-modal-heading">Journal Entry</h2>
-                <button type="button" onclick="closeJournalModal()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.3rem; line-height: 1;" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+                <button type="button" class="icon-btn" onclick="requestCloseJournal()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
             </div>
 
             <div class="nj-fields">
@@ -1692,10 +1696,10 @@
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 8px;">
-                <button type="button" id="journal-delete-btn" onclick="deleteCurrentJournalEntry()" style="background: transparent; color: var(--danger); border: 1px solid var(--danger); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.8rem; display: none;">Delete Entry</button>
+                <button type="button" id="journal-delete-btn" class="btn btn-sm btn-danger" onclick="deleteCurrentJournalEntry()" style="display: none;">Delete entry</button>
                 <div style="display: flex; gap: 8px; margin-left: auto;">
-                    <button type="button" onclick="closeJournalModal()" style="background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 6px 14px; border-radius: 2px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
-                    <button type="button" onclick="saveCurrentJournalEntry()" style="background: var(--accent-gold); color: var(--on-accent); border: none; padding: 6px 18px; border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 0.85rem;">Save Entry</button>
+                    <button type="button" class="btn btn-sm" onclick="requestCloseJournal()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-accent" onclick="saveCurrentJournalEntry()">Save entry</button>
                 </div>
             </div>
         </div>
@@ -1716,11 +1720,11 @@
     </div>
 
     <!-- Character creation guide (Dark Dungeons Chapter 4) -->
-    <div id="creation-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
+    <div id="creation-modal" role="dialog" aria-modal="true" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; justify-content: center; align-items: center;">
         <div class="card cat-card" onclick="event.stopPropagation();">
             <div class="panel-head">
                 <h2 style="display: inline-flex; align-items: center; gap: 8px;"><span data-icon="portrait" data-size="18"></span> Create a Character</h2>
-                <button type="button" class="icon-btn" onclick="closeCreationGuide()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
+                <button type="button" class="icon-btn" onclick="ccRequestClose()" aria-label="Close"><span data-icon="close" data-size="16"></span></button>
             </div>
             <div class="segmented cat-tabs cc-steps" id="creation-steps"></div>
             <div id="creation-body" class="cat-body"></div>
@@ -1739,6 +1743,7 @@
             <div class="cat-toolbar">
                 <input type="search" id="catalogue-search" class="stat-input arc-input" placeholder="Search" oninput="setCatalogueQuery(this.value)">
                 <span id="catalogue-filters"></span>
+                <label id="catalogue-place-tool" class="cat-place-tool"><span class="eyebrow">Add to</span><select id="catalogue-place" class="stat-input arc-input" onchange="setCataloguePlace(this.value)" aria-label="Where added items go"></select></label>
                 <span id="catalogue-msg" class="sub-caption" style="margin: 0;"></span>
             </div>
             <div id="catalogue-body" class="cat-body"></div>
@@ -1767,7 +1772,7 @@
                 <div class="eyebrow" style="display: inline-flex; align-items: center; gap: 6px;"><span data-icon="up" data-size="14"></span> Level up</div>
                 <h2 id="levelup-title" style="border: none; padding: 0; margin: 4px 0 0; font-size: 1.15rem;"></h2>
             </div>
-            <label style="display: flex; flex-direction: column; gap: 4px;">
+            <label id="levelup-hp-wrap" style="display: flex; flex-direction: column; gap: 4px;">
                 <span class="eyebrow">Hit points gained</span>
                 <span id="levelup-hp-hint" class="sub-caption" style="margin: 0;"></span>
                 <input type="number" id="levelup-hp" class="stat-input" min="0" style="border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; font-size: 1.1rem;" onkeydown="if (event.key === 'Enter') confirmLevelUp(true)">
@@ -1776,9 +1781,14 @@
                 <span class="eyebrow">Also at this level</span>
                 <ul id="levelup-gains" style="margin: 6px 0 0; padding-left: 20px; line-height: 1.5;"></ul>
             </div>
-            <p class="sub-caption" style="margin: 0;">The hit points are added to your maximum and current hit points, and the level-up is written to the Adventure Log.</p>
+            <div id="levelup-steps-wrap" style="display: none;">
+                <span class="eyebrow">To do</span>
+                <div id="levelup-steps" class="levelup-steps"></div>
+            </div>
+            <p class="sub-caption" style="margin: 0;">Hit points are added to your maximum and current hit points, and everything is written to the Adventure Log. A copy of the sheet from before is kept in Backups. The To do buttons open each window in front of this one.</p>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <button type="button" class="btn btn-sm" onclick="confirmLevelUp(false)">Log without hit points</button>
+                <button type="button" id="levelup-later-btn" class="btn btn-sm" onclick="laterLevelUp()" title="Close without writing to the Adventure Log">Later</button>
+                <button type="button" id="levelup-nohp-btn" class="btn btn-sm" onclick="confirmLevelUp(false)">Log without hit points</button>
                 <button type="button" class="btn btn-sm btn-accent" onclick="confirmLevelUp(true)">Record level up</button>
             </div>
         </div>
@@ -1807,6 +1817,7 @@
     <script src="js/vessels.js"></script>
     <script src="js/everyday.js"></script>
     <script src="js/summary.js"></script>
+    <script src="js/backups.js"></script>
     <script src="js/calendar.js"></script>
     <script src="js/app.js"></script>
     <script src="js/notes.js"></script>

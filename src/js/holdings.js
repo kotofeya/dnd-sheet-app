@@ -142,8 +142,6 @@ function renderHoldings() {
     const monthly = holdingsMonthlyTotal();
     const value = list.filter(holdingActive).reduce((s, h) => s + holdingNum(h.value), 0);
     const staffCount = list.filter(holdingActive).reduce((s, h) => s + h.staff.reduce((t, x) => t + (Math.max(0, holdingNum(x.count)) || 1), 0), 0);
-    const cal = typeof calendarState === 'function' ? calendarState() : null;
-    const paidThisMonth = cal && cal.holdingsMonth !== undefined && cal.holdingsMonth >= calParts(cal.t).monthAbs;
     const summary = `
     <div class="card comp-summary">
         <div class="panel-head">
@@ -155,13 +153,9 @@ function renderHoldings() {
             <span>Holdings <strong>${list.filter(holdingActive).length}</strong></span>
             <span>Staff <strong>${staffCount}</strong></span>
             <span>Worth <strong>${holdingGp(value)}</strong></span>
-            <span>Costs <strong>${holdingGp(monthly)}</strong> / month${paidThisMonth ? ' <span class="tag" style="color: var(--good);">paid</span>' : ''}</span>
+            <span>Costs <strong>${holdingGp(monthly)}</strong> / month</span>
         </div>
-        <div class="arc-actions" style="margin: 8px 0 0;">
-            <button type="button" class="btn btn-sm btn-accent" onclick="payHoldingCosts()" ${monthly ? '' : 'disabled'} title="Wages, rent and running costs of every home">Pay this month's household costs</button>
-            ${paySourceSelect()}
-            ${cal ? `<label class="arc-check" title="When the calendar reaches a new month, wages and household costs are paid by themselves from the chosen money (for every month that passed)"><input type="checkbox" ${calendarState().settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay automatically each month</label>` : ''}
-        </div>
+        ${monthlyBillsBar()}
     </div>`;
     root.innerHTML = summary + (list.length ? list.map(holdingCard).join('') : `<div class="card"><div class="ledger-note">No homes yet. Add the inn room you rent, the tower you inherited or the house you plan to build.</div></div>`)
         + `<div class="arc-source">Dark Dungeons Chapter 8: Table 8-8 (buildings), Table 8-10 (specialists) · Rules Cyclopedia Chapter 11 (strongholds)</div>`;
@@ -421,30 +415,95 @@ function setPaySource(src) {
     if (typeof debouncedSave === 'function') debouncedSave();
     if (typeof renderCompanions === 'function') { try { renderCompanions(); } catch (e) { console.error(e); } }
     renderHoldings();
+    if (document.getElementById('calendar-modal') && typeof renderCalendarModal === 'function') renderCalendarModal();
 }
 function paySourceSelect() {
     if (typeof calendarState !== 'function') return '';
     const cur = monthlyPaySource();
-    return `<label class="arc-check" title="Where wages, household costs and building costs are paid from">Pay from <select class="stat-input arc-input pay-source" onchange="setPaySource(this.value)">${PAY_SOURCES.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    return `<label class="arc-check" title="Where wages, household costs and building costs are paid from">Pay from <select class="stat-input arc-input pay-source" aria-label="Pay bills from" onchange="setPaySource(this.value)">${PAY_SOURCES.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
 }
 window.setPaySource = setPaySource;
 
-async function payHoldingCosts() {
-    const list = householdBills();
-    const perMonth = list.reduce((s, b) => s + b.amount, 0);
-    if (!perMonth) return;
-    // Every month since the last payment is owed (at least the current one).
-    const cal = typeof calendarState === 'function' ? calendarState() : null;
-    const months = cal ? Math.max(1, calParts(cal.t).monthAbs - (cal.holdingsMonth ?? calParts(cal.t).monthAbs)) : 1;
-    const total = perMonth * months;
-    const lines = list.map(b => `${b.name}: ${holdingGp(b.amount)}`).join('\n');
-    const what = months > 1 ? `${months} months of household costs (unpaid since then)` : 'a month of household costs';
-    if (!(await sheetConfirm(`Pay ${what}, ${holdingGp(total)} in all, from your ${paySourceLabel(monthlyPaySource())}?\n\nEach month:\n${lines}`, 'Pay'))) return;
-    if (!(await holdingsPay(total, monthlyPaySource()))) return;
-    holdingsLog(`Paid ${what.replace(' (unpaid since then)', '')}: ${holdingGp(total)} (${list.map(h => h.name).join(', ')}).`, { spent: total, months });
-    if (typeof calendarState === 'function') { calendarState().holdingsMonth = calParts(calendarState().t).monthAbs; if (typeof renderGameClock === 'function') renderGameClock(); }
-    holdingsSave();
+// ---------------------------------------------------------------------------
+// Monthly bills: companions' wages (js/companions.js) and household costs (homes and vessels) are
+// paid together, from one button shown on both the Companions and Holdings tabs. The calendar
+// remembers the last month paid for each (wagesMonth, holdingsMonth).
+function monthlyBillsInfo() {
+    const ch = currentCharacter;
+    const comps = Array.isArray(ch?.companions) && typeof monthlyCost === 'function' ? ch.companions.filter(c => monthlyCost(c) > 0) : [];
+    const wages = comps.reduce((s, c) => s + monthlyCost(c), 0);
+    const homes = ch ? householdBills() : [];
+    const household = homes.reduce((s, b) => s + b.amount, 0);
+    const cal = typeof calendarState === 'function' && ch ? calendarState() : null;
+    const now = cal ? calParts(cal.t) : null;
+    const cur = now ? now.monthAbs : 0;
+    const part = (kind, perMonth, key, lines) => {
+        const paidTo = cal ? (cal[key] ?? cur) : cur - 1;
+        return { kind, perMonth, key, lines, paidTo, behind: perMonth > 0 ? cur - paidTo : 0 };
+    };
+    const parts = [
+        part('wages', wages, 'wagesMonth', comps.map(c => [c.name || 'Companion', monthlyCost(c)])),
+        part('household', household, 'holdingsMonth', homes.map(b => [b.name || 'Home', b.amount])),
+    ].filter(p => p.perMonth > 0);
+    const due = parts.filter(p => p.behind > 0);
+    return { cal, now, cur, parts, due, wages, household, total: wages + household, monthName: now ? CAL_MONTHS[now.month] : '' };
 }
+function monthlyBillsBadge(info = monthlyBillsInfo()) {
+    if (!info.total) return '';
+    if (!info.due.length) return `<span class="bills-badge paid" title="Wages and household costs are paid for this month">Paid${info.monthName ? ` for ${escapeHtml(info.monthName)}` : ''}</span>`;
+    const most = Math.max(...info.due.map(p => p.behind));
+    return `<span class="bills-badge due" title="${escapeHtml(info.due.map(p => `${p.kind === 'wages' ? 'Wages' : 'Household costs'}: ${p.behind} month${p.behind > 1 ? 's' : ''} unpaid`).join('\n'))}">Due${most > 1 ? `: ${most} months` : info.monthName ? ` for ${escapeHtml(info.monthName)}` : ''}</span>`;
+}
+// The bills line for the Companions and Holdings tabs: total, paid/due, one button, and where the money comes from.
+function monthlyBillsBar() {
+    const info = monthlyBillsInfo();
+    if (!info.total) return `<div class="bills-bar"><span class="bills-setting">No monthly bills: nobody is on a monthly wage and no home or vessel has running costs.</span></div>`;
+    const auto = info.cal && info.cal.settings && info.cal.settings.autoPay;
+    const split = info.wages && info.household ? ` <span class="sub-caption bills-split">(wages ${holdingGp(info.wages)} · household ${holdingGp(info.household)})</span>` : '';
+    const label = !info.due.length ? 'Pay next month in advance' : 'Pay monthly bills';
+    return `<div class="bills-bar">
+        <span class="bills-total">Monthly bills <strong>${holdingGp(info.total)}</strong>${split}</span>
+        ${monthlyBillsBadge(info)}
+        <button type="button" class="btn btn-sm${info.due.length ? ' btn-accent' : ''}" onclick="payMonthlyBills()" title="Companions' wages and the costs of your homes and vessels, together">${label}</button>
+        ${info.cal ? `<span class="bills-setting">Paid from the ${escapeHtml(paySourceLabel(monthlyPaySource()))}${auto ? ', automatically each month' : ''} · <button type="button" class="link-btn" onclick="openCalendarSettings()">Change</button></span>` : ''}
+    </div>`;
+}
+async function payMonthlyBills() {
+    const info = monthlyBillsInfo();
+    if (!info.total) return;
+    // Pay what is owed (every unpaid month); when nothing is owed, pay the next month in advance.
+    const advance = !info.due.length;
+    const parts = (advance ? info.parts : info.due).map(p => ({ ...p, months: advance ? 1 : p.behind }));
+    const total = parts.reduce((s, p) => s + p.perMonth * p.months, 0);
+    const src = monthlyPaySource();
+    const nextName = info.now ? CAL_MONTHS[(info.now.month + 1) % 12] : 'next month';
+    const head = advance ? `Pay ${nextName}'s bills in advance (this month is already paid)` : `Pay the monthly bills${info.monthName ? ` for ${info.monthName}` : ''}`;
+    const block = p => {
+        const name = p.kind === 'wages' ? 'Wages' : 'Household costs';
+        const sum = p.months > 1 ? `${p.months} months × ${holdingGp(p.perMonth)} = ${holdingGp(p.perMonth * p.months)}` : holdingGp(p.perMonth);
+        return `${name}: ${sum}\n${p.lines.map(([n, a]) => `  ${n}: ${holdingGp(a)} a month`).join('\n')}`;
+    };
+    if (!(await sheetConfirm(`${head}: ${holdingGp(total)} in all, from your ${paySourceLabel(src)}.\n\n${parts.map(block).join('\n\n')}`, 'Pay'))) return;
+    if (!(await holdingsPay(total, src))) return;
+    const cal = info.cal;
+    parts.forEach(p => {
+        const amount = p.perMonth * p.months;
+        const what = p.kind === 'wages' ? 'wages' : 'household costs';
+        const when = advance ? `${nextName}'s ${what} in advance` : p.months > 1 ? `${p.months} months of ${what}` : `${what} for ${info.monthName || 'the month'}`;
+        const names = p.lines.map(l => l[0]).join(', ');
+        if (p.kind === 'wages') { if (typeof compLog === 'function') compLog(`Paid ${when}: ${holdingGp(amount)} (${names}).`, { wages: amount, months: p.months }); }
+        else holdingsLog(`Paid ${when}: ${holdingGp(amount)} (${names}).`, { spent: amount, months: p.months });
+        if (cal) cal[p.key] = p.paidTo + p.months;
+    });
+    if (typeof debouncedSave === 'function') debouncedSave();
+    if (typeof renderCompanions === 'function') { try { renderCompanions(); } catch (e) { console.error(e); } }
+    renderHoldings();
+    if (typeof renderGameClock === 'function') renderGameClock();
+    if (document.getElementById('calendar-modal') && typeof renderCalendarModal === 'function') renderCalendarModal();
+    if (typeof sheetToast === 'function') sheetToast(`Paid ${holdingGp(total)} from the ${paySourceLabel(src)}.`, { ms: 4000 });
+}
+// Older names, kept for anything that still calls them.
+const payHoldingCosts = payMonthlyBills;
 
 // For the calendar's "Due" list.
 function holdingsDue() {
@@ -494,3 +553,6 @@ window.openHoldingRoomEditor = openHoldingRoomEditor;
 window.openBuildPlanner = openBuildPlanner;
 window.finishHoldingConstruction = finishHoldingConstruction;
 window.payHoldingCosts = payHoldingCosts;
+window.payMonthlyBills = payMonthlyBills;
+window.monthlyBillsBar = monthlyBillsBar;
+window.monthlyBillsInfo = monthlyBillsInfo;

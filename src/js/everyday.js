@@ -38,6 +38,33 @@ function parseUsesFromText(text, level) {
 }
 
 // Abilities of the class (and sub-class) at this level that say how often they can be used.
+// Every ability with limited uses at the character's level: [{ name, max, per }].
+function limitedUseAbilities(ch) {
+    if (!ch || typeof ClassesDatabase === 'undefined') return [];
+    const level = Number(ch.level) || 1;
+    const feats = [];
+    (ClassesDatabase[ch.characterClass]?.features || []).filter(f => level >= f.minLevel).forEach(f => feats.push(f));
+    const opt = typeof getClassOption === 'function' ? getClassOption(ch) : null;
+    const optLevel = opt?.ownXpTrack ? (Number(ch.subClassLevel) || 1) : level;
+    (opt?.features || []).filter(f => optLevel >= f.minLevel).forEach(f => feats.push({ ...f, _lvl: optLevel }));
+    const out = [];
+    feats.forEach(f => { const u = parseUsesFromText(f.description, f._lvl || level); if (u) out.push({ name: f.name, max: u.count, per: u.per }); });
+    return out;
+}
+// At a new level: tracked uses whose number grows ({ entry, max }), and new abilities not yet tracked.
+function dailyUseChangesFor(ch) {
+    const list = Array.isArray(currentCharacter?.dailyUses) ? currentCharacter.dailyUses : [];
+    const abil = limitedUseAbilities(ch);
+    const updates = [], fresh = [];
+    abil.forEach(a => {
+        const e = list.find(u => u.name.toLowerCase() === a.name.toLowerCase());
+        if (e) { if (Number(e.max) !== a.max && (e.per || 'day') === a.per) updates.push({ entry: e, max: a.max }); }
+        else fresh.push(a);
+    });
+    return { updates, fresh };
+}
+window.dailyUseChangesFor = dailyUseChangesFor;
+
 function suggestedDailyUses() {
     const ch = currentCharacter;
     if (!ch || typeof ClassesDatabase === 'undefined') return [];
@@ -69,7 +96,7 @@ function renderDailyUses() {
         const left = max - used;
         const pips = max <= 12
             ? `<span class="du-pips">${Array.from({ length: max }, (_, i) => `<button type="button" class="du-pip${i < used ? ' spent' : ''}" onclick="toggleDailyUse('${u.id}', ${i})" title="${i < used ? 'Used — click to give it back' : 'Click when used'}" aria-label="${escapeHtml(u.name)} use ${i + 1}: ${i < used ? 'used' : 'ready'}"></button>`).join('')}</span>`
-            : `<span class="du-count"><button type="button" class="icon-btn" onclick="stepDailyUse('${u.id}', 1)" title="Use one">-</button><strong>${left}</strong> / ${max}<button type="button" class="icon-btn" onclick="stepDailyUse('${u.id}', -1)" title="Give one back">+</button></span>`;
+            : `<span class="du-count"><button type="button" class="icon-btn" onclick="stepDailyUse('${u.id}', 1)" title="Use one" aria-label="Use one ${escapeHtml(u.name)}">-</button><strong>${left}</strong> / ${max}<button type="button" class="icon-btn" onclick="stepDailyUse('${u.id}', -1)" title="Give one back" aria-label="Give back one ${escapeHtml(u.name)}">+</button></span>`;
         return `<div class="du-row${left === 0 && max > 0 ? ' du-spent' : ''}">
             <div class="du-name"><strong>${escapeHtml(u.name)}</strong><span class="eyebrow">${max} ${escapeHtml(DU_PERIODS[u.per] || 'a day')}${u.note ? ' · ' + escapeHtml(u.note) : ''}</span></div>
             ${pips}
@@ -83,7 +110,7 @@ function renderDailyUses() {
             <div class="panel-head-tools">
                 ${sugg.length ? `<button type="button" class="btn btn-sm" onclick="addSuggestedDailyUses()" title="${escapeHtml(sugg.map(s => `${s.name}: ${s.max} ${DU_PERIODS[s.per]}`).join('\n'))}">From abilities (${sugg.length})</button>` : ''}
                 <button type="button" class="btn btn-sm" onclick="editDailyUse()">+ Add</button>
-                ${list.length ? `<button type="button" class="btn btn-sm" onclick="resetDailyUses('day', true)" title="Refill everything used per day (the calendar also does this each morning)">New day</button>` : ''}
+                ${list.length ? `<button type="button" class="btn btn-sm" onclick="resetDailyUses('day', true)" title="Refills the uses per day now without moving the calendar. To let a day pass, use + Day or Rest a day at the top of the sheet: they refill the uses and move the calendar.">Refill (no time passes)</button>` : ''}
             </div>
         </div>
         ${rows || '<div class="ledger-note">Abilities you can use only so often (charm three times a day, a roar twice a day, a power once a week...). Tick a box when you use one; they refill by themselves when days, weeks or months pass on the calendar.</div>'}`;
@@ -190,6 +217,13 @@ function suppliesState() {
     return s;
 }
 function inventoryItems() { return Array.isArray(currentCharacter?.inventory) ? currentCharacter.inventory : []; }
+// What the character has along: not in the Vault, at a home or on a mount.
+function itemsWithYou() {
+    if (typeof invIsWithCharacter === 'function') return inventoryItems().filter(it => invIsWithCharacter(it));
+    const c = currentCharacter || {};
+    const away = new Set(['Vault', ...(c.holdings || []).map(h => h.id), ...(c.mounts || []).map(m => m.id)]);
+    return inventoryItems().filter(it => it && !away.has(it.location));
+}
 function itemQty(it) { return (it.qty === undefined || it.qty === null || it.qty === '') ? 1 : Math.max(0, Number(it.qty) || 0); }
 // A used-up stack stays in the inventory at 0 (shown as DEPLETED, with a Refill button).
 function setItemQty(it, q) { it.qty = Math.max(0, q); }
@@ -197,7 +231,7 @@ function setItemQty(it, q) { it.qty = Math.max(0, q); }
 // Food left, in days, for the people eating (a ration pack feeds one person for a week).
 function foodDaysLeft() {
     const s = suppliesState();
-    const portions = inventoryItems().filter(isRation).reduce((sum, it) => sum + itemQty(it) * 7, 0) + (Number(s.openPortions) || 0);
+    const portions = itemsWithYou().filter(isRation).reduce((sum, it) => sum + itemQty(it) * 7, 0) + (Number(s.openPortions) || 0);
     return { portions, days: Math.floor(portions / Math.max(1, Number(s.eaters) || 1)) };
 }
 
@@ -205,7 +239,7 @@ function foodDaysLeft() {
 function eatPortions(n) {
     const s = suppliesState();
     let need = n, eaten = 0;
-    const packs = () => inventoryItems().filter(it => isRation(it) && itemQty(it) > 0)
+    const packs = () => itemsWithYou().filter(it => isRation(it) && itemQty(it) > 0)
         .sort((a, b) => (/fresh/i.test(b.name) ? 1 : 0) - (/fresh/i.test(a.name) ? 1 : 0));
     while (need > 0) {
         if (s.openPortions > 0) { const t = Math.min(need, s.openPortions); s.openPortions -= t; need -= t; eaten += t; continue; }
@@ -224,21 +258,25 @@ function renderSupplies() {
     card.style.display = '';
     const s = suppliesState();
     const inv = inventoryItems();
-    const shown = inv.map((it, i) => ({ it, i })).filter(({ it }) => isSupply(it) && !s.hidden.includes(it.id));
-    const hiddenCount = inv.filter(it => isSupply(it) && s.hidden.includes(it.id)).length;
+    // Only what the character has along: things in the Vault, at home or on a mount can't be used from here.
+    const along = itemsWithYou();
+    const alongSet = new Set(along);
+    const shown = inv.map((it, i) => ({ it, i })).filter(({ it }) => alongSet.has(it) && isSupply(it) && !s.hidden.includes(it.id));
+    const hiddenCount = along.filter(it => isSupply(it) && s.hidden.includes(it.id)).length;
+    const awayCount = inv.filter(it => isSupply(it) && !alongSet.has(it)).length;
     const food = foodDaysLeft();
     const rowsHtml = shown.map(({ it, i }) => {
         const q = itemQty(it);
         const extra = isRation(it) ? '<span class="eyebrow">1 pack = 1 week for one</span>' : '';
         return `<div class="sup-row${q === 0 ? ' sup-out' : ''}">
-            <div class="sup-name"><strong>${escapeHtml(it.name)}</strong>${it.location && it.location !== 'Carried' ? `<span class="tag">${escapeHtml(it.location)}</span>` : ''}${extra}</div>
-            <span class="sup-qty"><button type="button" class="icon-btn" onclick="stepSupply(${i}, -1)" title="Use one" ${q <= 0 ? 'disabled' : ''}>-</button><strong>${q}</strong><button type="button" class="icon-btn" onclick="stepSupply(${i}, 1)" title="Add one">+</button></span>
-            <button type="button" class="icon-btn" onclick="hideSupply('${escapeHtml(String(it.id))}')" title="Don't show here" aria-label="Hide ${escapeHtml(it.name)}">${getIcon('close', 11)}</button>
+            <div class="sup-name"><strong>${escapeHtml(it.name)}</strong>${it.location && it.location !== 'Carried' ? `<span class="tag">${escapeHtml(typeof inventoryLocationName === 'function' ? inventoryLocationName(it) : it.location)}</span>` : ''}${extra}</div>
+            <span class="sup-qty"><button type="button" class="icon-btn" onclick="stepSupply(${i}, -1)" title="Use one" aria-label="Use one ${escapeHtml(it.name)}" ${q <= 0 ? 'disabled' : ''}>-</button><strong>${q}</strong><button type="button" class="icon-btn" onclick="stepSupply(${i}, 1)" title="Add one" aria-label="Add one ${escapeHtml(it.name)}">+</button></span>
+            <button type="button" class="btn btn-sm sup-hide" onclick="hideSupply('${escapeHtml(String(it.id))}')" title="Hide it from this list (it stays in the inventory)" aria-label="Hide ${escapeHtml(it.name)} from supplies">Hide</button>
         </div>`;
     }).join('');
-    const torches = inv.filter(isTorch).reduce((n, it) => n + itemQty(it), 0);
-    const oil = inv.filter(isOilFlask).reduce((n, it) => n + itemQty(it), 0);
-    const hasLantern = inv.some(it => isLantern(it) && itemQty(it) > 0);
+    const torches = along.filter(isTorch).reduce((n, it) => n + itemQty(it), 0);
+    const oil = along.filter(isOilFlask).reduce((n, it) => n + itemQty(it), 0);
+    const hasLantern = along.some(it => isLantern(it) && itemQty(it) > 0);
     const lightsHtml = s.lights.map(l => {
         const pct = Math.max(0, Math.min(100, Math.round(100 * l.turns / Math.max(1, l.total))));
         return `<div class="light-row">
@@ -255,21 +293,27 @@ function renderSupplies() {
         <div class="sup-grid">
             <div>
                 <div class="eyebrow eyebrow-strong" style="margin-bottom: 6px;">Supplies</div>
-                ${rowsHtml || '<div class="ledger-note">Ammunition, rations, torches, oil and other consumables in your inventory appear here, with quick -/+ buttons.</div>'}
+                ${rowsHtml || '<div class="ledger-note">Ammunition, rations, torches, oil and other consumables you carry appear here, with quick -/+ buttons.</div>'}
+                ${awayCount ? `<div class="ledger-note sup-away">${awayCount} more kept in the Vault, at home or on a mount (not usable from here).</div>` : ''}
                 <div class="sup-food">
                     <label class="arc-check"><input type="checkbox" ${s.eatRations ? 'checked' : ''} onchange="setSupplyOption('eatRations', this.checked)"> Eat rations as days pass</label>
                     <label class="sup-eaters">People eating <input type="number" min="1" max="99" class="stat-input small-field" value="${Number(s.eaters) || 1}" onchange="setSupplyOption('eaters', this.value)"></label>
-                    <span class="eyebrow">Food for <strong>${food.days}</strong> day${food.days === 1 ? '' : 's'}${s.openPortions ? ` · ${s.openPortions} portion${s.openPortions === 1 ? '' : 's'} left in the open pack` : ''}</span>
+                    <span class="eyebrow">${food.portions > 0 ? `Food for <strong>${food.days}</strong> day${food.days === 1 ? '' : 's'}${s.openPortions ? ` · ${s.openPortions} portion${s.openPortions === 1 ? '' : 's'} left in the open pack` : ''}` : 'No rations carried'}</span>
                 </div>
             </div>
             <div>
                 <div class="eyebrow eyebrow-strong" style="margin-bottom: 6px;">Light</div>
                 ${lightsHtml || '<div class="ledger-note">Nothing lit.</div>'}
                 <div class="light-btns">
-                    <button type="button" class="btn btn-sm" onclick="lightSource('torch')" ${torches ? '' : 'disabled'} title="${torches ? `Uses one of your ${torches} torches` : 'No torches in the inventory'}">Light a torch</button>
-                    <button type="button" class="btn btn-sm" onclick="lightSource('lantern')" ${hasLantern && oil ? '' : 'disabled'} title="${hasLantern ? (oil ? `Uses one of your ${oil} flasks of oil` : 'No oil in the inventory') : 'No lantern in the inventory'}">Fill &amp; light the lantern</button>
+                    <button type="button" class="btn btn-sm" onclick="lightSource('torch')" ${torches ? '' : 'disabled'} title="${torches ? `Uses one of your ${torches} torches` : 'No torches carried'}">Light a torch</button>
+                    <button type="button" class="btn btn-sm" onclick="lightSource('lantern')" ${hasLantern && oil ? '' : 'disabled'} title="${hasLantern ? (oil ? `Uses one of your ${oil} flasks of oil` : 'No oil carried') : 'No lantern carried'}">Fill &amp; light the lantern</button>
                     <button type="button" class="btn btn-sm" onclick="lightSource('other')">Other light…</button>
                 </div>
+                ${(() => {
+                    const why = [!torches ? 'No torches carried' : `${torches} torch${torches === 1 ? '' : 'es'}`,
+                        !hasLantern ? 'no lantern carried' : !oil ? 'lantern but no oil carried' : `lantern, ${oil} flask${oil === 1 ? '' : 's'} of oil`];
+                    return `<div class="ledger-note sup-light-why">${escapeHtml(why.join(' · ').replace(/^./, c => c.toUpperCase()))}</div>`;
+                })()}
                 ${s.lights.length ? `<div class="light-btns"><span class="eyebrow">Time passes</span>
                     <button type="button" class="btn btn-sm" onclick="burnLights(1)">1 turn</button>
                     <button type="button" class="btn btn-sm" onclick="burnLights(6)">1 hour</button></div>` : ''}
@@ -304,7 +348,7 @@ function setSupplyOption(key, value) {
 
 async function lightSource(kind) {
     const s = suppliesState();
-    const inv = inventoryItems();
+    const inv = itemsWithYou();
     let name, turns;
     if (kind === 'torch') {
         const it = inv.find(x => isTorch(x) && itemQty(x) > 0);

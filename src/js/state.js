@@ -143,6 +143,12 @@ const PRIME_REQUISITES = {
     'Harpy Wicca':    { allAny: ['strength', 'intelligence'] },
     'Pegataur Shaman': { allAny: ['strength', 'constitution', 'wisdom'] },
     'Pegataur Wicca': { allAny: ['strength', 'constitution', 'intelligence'] },
+    // PC1 woodland shamans and wiccas: the race's prime requisite and Wisdom (or Intelligence).
+    'Centaur Shaman': { all: ['strength', 'wisdom'] },
+    'Centaur Wicca':  { all: ['strength', 'intelligence'] },
+    'Faun Shaman':    { all: ['dexterity', 'wisdom'] },
+    'Treant Shaman':  { all: ['constitution', 'wisdom'] },
+    'Wood Imp Shaman': { all: ['dexterity', 'wisdom'] },
 };
 
 function getPrimeRequisiteBonus(className, stats) {
@@ -274,6 +280,48 @@ function getCreatureStage(character) {
     return stage;
 }
 
+// Every XP threshold in order: a creature hero's stages before 1st level, then each level.
+// Used so an award crosses at most one threshold (RC: one level per award; a stage counts as one).
+function xpThresholds(character) {
+    const info = (typeof ClassesDatabase !== 'undefined' && ClassesDatabase[character?.characterClass]) || {};
+    const table = getXpTableFor(character) || info.xpTable || [];
+    const stages = (Array.isArray(info.preStages) ? info.preStages : []).map(s => ({ xp: s.xp, label: s.name, stage: s }))
+        .sort((a, b) => a.xp - b.xp);
+    const levels = [];
+    for (let l = 1; l <= 36; l++) if (table[l] !== undefined) levels.push({ xp: Number(table[l]) || 0, label: `Level ${toRoman(l)}`, level: l });
+    // A level-1 entry at 0 XP is the same point as a "Normal Monster" stage at 0 only when no stage sits there.
+    return [...stages, ...levels.filter(t => !(t.level === 1 && stages.length && t.xp <= stages[stages.length - 1].xp))];
+}
+// Where the character stands on that list (index of the last threshold reached).
+function xpThresholdIndex(character, list = xpThresholds(character)) {
+    const stage = getCreatureStage(character);
+    if (stage) return Math.max(0, list.findIndex(t => t.stage === stage));
+    const lvl = Number(character?.level) || 1;
+    const i = list.findIndex(t => t.level === lvl);
+    return i >= 0 ? i : 0;
+}
+// The next threshold ({ xp, label }) or null at the top.
+function nextXpThreshold(character) {
+    const list = xpThresholds(character);
+    return list[xpThresholdIndex(character, list) + 1] || null;
+}
+// Highest XP one award can bring: just below the threshold after the next one.
+function xpAwardCap(character) {
+    const list = xpThresholds(character);
+    const after = list[xpThresholdIndex(character, list) + 2];
+    // Never below what the character already has (e.g. a level lowered by hand or drained).
+    return after ? Math.max(after.xp - 1, Number(character?.experiencePoints) || 0) : Infinity;
+}
+// The lowest XP the character may have: its first stage (negative for young creatures), else 0.
+function lowestXpFor(character) {
+    const info = (typeof ClassesDatabase !== 'undefined' && ClassesDatabase[character?.characterClass]) || {};
+    return Math.min(0, ...((info.preStages || []).map(s => s.xp)));
+}
+window.xpThresholds = xpThresholds;
+window.nextXpThreshold = nextXpThreshold;
+window.xpAwardCap = xpAwardCap;
+window.lowestXpFor = lowestXpFor;
+
 // XP fields show thousands separators ("16,000"); commas are ignored when reading,
 // and the field is re-formatted when it loses focus.
 function readXp(id) {
@@ -374,6 +422,80 @@ window.alert = message => { sheetAlert(message); };
 window.sheetDialog = sheetDialog;
 window.sheetAlert = sheetAlert;
 window.sheetConfirm = sheetConfirm;
+
+// A short message at the bottom of the window that fades by itself, with an optional
+// action button (e.g. Undo). sheetToast(text, { action: 'Undo', onAction: fn, ms: 6000 })
+function sheetToast(text, { action = '', onAction = null, ms = 5000 } = {}) {
+    let host = document.getElementById('sheet-toasts');
+    if (!host) { host = document.createElement('div'); host.id = 'sheet-toasts'; host.setAttribute('aria-live', 'polite'); document.body.appendChild(host); }
+    const t = document.createElement('div');
+    t.className = 'sheet-toast';
+    const span = document.createElement('span'); span.textContent = String(text ?? ''); t.appendChild(span);
+    let timer = null;
+    const close = () => { clearTimeout(timer); t.classList.add('leaving'); setTimeout(() => t.remove(), 250); };
+    if (action && typeof onAction === 'function') {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-sm'; b.textContent = action;
+        b.onclick = () => { close(); onAction(); };
+        t.appendChild(b);
+    }
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'icon-btn'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '×'; x.onclick = close;
+    t.appendChild(x);
+    host.appendChild(t);
+    while (host.children.length > 4) host.firstChild.remove();
+    timer = setTimeout(close, ms);
+    t.addEventListener('mouseenter', () => clearTimeout(timer));
+    t.addEventListener('mouseleave', () => { timer = setTimeout(close, 2500); });
+    return close;
+}
+window.sheetToast = sheetToast;
+
+// Forms: remember whether anything was typed, so a click outside or Esc asks before throwing it away.
+function watchFormEdits(root) {
+    if (!root || root.__watching) return;
+    root.__watching = true; root.__edited = false;
+    const mark = e => { if (e.isTrusted) root.__edited = true; };
+    root.addEventListener('input', mark, true);
+    root.addEventListener('change', mark, true);
+}
+function resetFormEdits(root) { if (root) root.__edited = false; }
+async function okToDiscard(root) {
+    if (!root || !root.__edited) return true;
+    const ok = await sheetConfirm('Discard what you typed?', 'Discard');
+    if (ok) root.__edited = false;
+    return ok;
+}
+window.watchFormEdits = watchFormEdits;
+window.resetFormEdits = resetFormEdits;
+window.okToDiscard = okToDiscard;
+
+// Esc closes the topmost open window. Each window registers its element id and how to close it
+// (the close function may ask okToDiscard first). Handlers that close something themselves call
+// e.preventDefault(), so one Esc never closes two windows.
+const MODAL_CLOSERS = new Map();
+function registerModalCloser(id, close) { MODAL_CLOSERS.set(id, close); }
+function topmostOpenModal() {
+    let best = null, bestZ = -Infinity, bestOrder = -1;
+    const all = [...document.querySelectorAll('body *')];
+    MODAL_CLOSERS.forEach((close, id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const cs = getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return;
+        const z = Number(cs.zIndex) || 0;
+        const order = all.indexOf(el);
+        if (z > bestZ || (z === bestZ && order > bestOrder)) { best = { id, close }; bestZ = z; bestOrder = order; }
+    });
+    return best;
+}
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.getElementById('sheet-dialog')) return;          // the message box handles its own Esc
+    const top = topmostOpenModal();
+    if (!top) return;
+    e.preventDefault();
+    try { top.close(); } catch (err) { console.error(err); }
+});
+window.registerModalCloser = registerModalCloser;
 
 // Search box for a long drop-down list: hide the options that don't match, and pick the first
 // one that does if the chosen one was hidden (its change handler runs to update any preview).

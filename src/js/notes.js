@@ -82,6 +82,8 @@ function syncNotesUI() {
     renderFactions();
     renderPortraitUI();
     renderHeraldryUI();
+    setTimeout(() => { shrinkStoredBioImages(); }, 0);
+    notesAutoGrowAll();
     const search = document.getElementById('notes-search');
     if (search && search.value) renderNotesSearch();
 }
@@ -89,19 +91,81 @@ function syncNotesUI() {
 // ---------------------------------------------------------------------------
 // Biography: portrait, heraldry, noble title and languages hint
 // ---------------------------------------------------------------------------
+// Pictures are kept inside the character file, which is written on every autosave, so they are
+// shrunk on upload: at most 480 px on the long side, JPEG (PNG or WebP when the picture has transparency).
+const NOTES_IMG_MAX = 480;
+const NOTES_IMG_BIG = 300 * 1024;        // stored pictures larger than this are shrunk once when loaded
+function notesLoadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('This file could not be read as a picture.'));
+        img.src = src;
+    });
+}
+async function shrinkImageDataUrl(src, max = NOTES_IMG_MAX) {
+    const img = await notesLoadImage(src);
+    const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+    if (!w0 || !h0) throw new Error('This file could not be read as a picture.');
+    const scale = Math.min(1, max / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const g = canvas.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(img, 0, 0, w, h);
+    let transparent = false;
+    try {
+        const px = g.getImageData(0, 0, w, h).data;
+        for (let i = 3; i < px.length; i += 16) { if (px[i] < 250) { transparent = true; break; } }
+    } catch (e) { /* cannot read the pixels: treat as opaque */ }
+    let out;
+    if (transparent) {
+        out = canvas.toDataURL('image/png');
+        if (out.length > 250 * 1024) { const webp = canvas.toDataURL('image/webp', 0.85); if (webp.startsWith('data:image/webp') && webp.length < out.length) out = webp; }
+    } else {
+        // A white ground under any half-transparent edge, then JPEG.
+        const flat = document.createElement('canvas'); flat.width = w; flat.height = h;
+        const f = flat.getContext('2d'); f.fillStyle = '#fff'; f.fillRect(0, 0, w, h); f.drawImage(canvas, 0, 0);
+        out = flat.toDataURL('image/jpeg', 0.85);
+    }
+    // Never keep a "smaller" copy that is in fact bigger (a tiny PNG icon, for example).
+    return out.length < String(src).length ? out : src;
+}
 function readBioImage(event, key, after) {
     const file = event.target?.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { sheetAlert('Image size exceeds 3 MB. Please choose a smaller image.'); return; }
+    if (file.size > 25 * 1024 * 1024) { sheetAlert('This picture is larger than 25 MB. Please choose a smaller one.'); return; }
+    const ch = currentCharacter;
     const reader = new FileReader();
-    reader.onload = (e) => {
-        if (!currentCharacter) return;
+    reader.onload = async (e) => {
+        if (!currentCharacter || currentCharacter !== ch) return;
+        let data = e.target?.result || '';
+        try { data = await shrinkImageDataUrl(data); }
+        catch (err) { console.error(err); sheetAlert(err?.message || 'This file could not be read as a picture.'); return; }
+        if (currentCharacter !== ch) return;
         notesState();
-        currentCharacter.bio[key] = e.target?.result || '';
+        currentCharacter.bio[key] = data;
         after();
         notesSave();
     };
     reader.readAsDataURL(file);
+}
+// Pictures saved by earlier versions at full size: shrink them once, in the background, and save.
+async function shrinkStoredBioImages() {
+    const ch = currentCharacter;
+    if (!ch || !ch.bio) return;
+    let changed = false;
+    for (const key of ['portrait', 'heraldry']) {
+        const src = ch.bio[key];
+        if (typeof src !== 'string' || !src.startsWith('data:image/') || src.length < NOTES_IMG_BIG) continue;
+        try {
+            const small = await shrinkImageDataUrl(src);
+            if (currentCharacter !== ch || ch.bio[key] !== src) return;     // another character, or a new picture
+            if (small.length < src.length) { ch.bio[key] = small; changed = true; }
+        } catch (e) { console.error(e); }
+    }
+    if (changed && currentCharacter === ch) { renderPortraitUI(); renderHeraldryUI(); notesSave(); }
 }
 function clickFileInput(id) {
     const input = document.getElementById(id);
@@ -126,7 +190,7 @@ function renderPortraitUI() {
     img.src = src || '';
     img.style.display = src ? 'block' : 'none';
     placeholder.style.display = src ? 'none' : 'flex';
-    if (removeBtn) removeBtn.style.display = src ? 'block' : 'none';
+    if (removeBtn) removeBtn.style.display = src ? '' : 'none';
     if (frame) frame.style.borderStyle = src ? 'solid' : 'dashed';
 }
 
@@ -148,9 +212,19 @@ function renderHeraldryUI() {
     img.src = src || '';
     img.style.display = src ? 'block' : 'none';
     placeholder.style.display = src ? 'none' : 'flex';
-    if (removeBtn) removeBtn.style.display = src ? 'block' : 'none';
+    if (removeBtn) removeBtn.style.display = src ? '' : 'none';
     if (frame) frame.classList.toggle('has-image', !!src);
 }
+
+// Long biography boxes grow with what is written in them (the Languages box too).
+const NOTES_GROW_IDS = ['bio-languages', 'bio-family', 'bio-appearance', 'bio-personality', 'bio-backstory'];
+function notesAutoGrow(el) {
+    if (!el || el.tagName !== 'TEXTAREA' || !el.offsetParent) return;      // hidden tab: measured when shown
+    const min = parseFloat(getComputedStyle(el).minHeight) || 0;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(min, el.scrollHeight + 2)}px`;
+}
+function notesAutoGrowAll() { NOTES_GROW_IDS.forEach(id => notesAutoGrow(document.getElementById(id))); }
 
 // Languages the character should know: Common, the alignment tongue and any racial languages.
 function defaultLanguages(cls, alignment) {
@@ -178,7 +252,7 @@ function renderBioExtras() {
     // Languages hint: Intelligence allows extra languages beyond the native ones.
     const hint = document.getElementById('bio-languages-hint');
     if (hint) {
-        const intScore = currentCharacter.abilities?.intelligence;
+        const intScore = Number(currentCharacter.abilities?.intelligence?.score) || 10;
         const native = defaultLanguages(currentCharacter.characterClass, currentCharacter.alignment);
         const extra = extraLanguageCount(intScore);
         const known = String(currentCharacter.bio.languages || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
@@ -294,7 +368,7 @@ function addMissingLanguages() {
     native.forEach(l => { if (!known.some(k => k.toLowerCase().startsWith(l.split(' ')[0].toLowerCase()))) known.push(l); });
     currentCharacter.bio.languages = known.join(', ');
     const el = document.getElementById('bio-languages');
-    if (el) el.value = currentCharacter.bio.languages;
+    if (el) { el.value = currentCharacter.bio.languages; notesAutoGrow(el); }
     renderBioExtras();
     notesSave();
 }
@@ -477,6 +551,7 @@ function insertLogIntoJournal() {
     if (!logs.length) return;
     const block = `## From the adventure log\n${logs.map(e => `- ${e.text}`).join('\n')}\n`;
     ta.value = ta.value.trim() ? `${ta.value.replace(/\s+$/, '')}\n\n${block}` : block;
+    journalMarkEdited();
     if (journalPreview) renderJournalPreview();
 }
 
@@ -496,6 +571,7 @@ function openJournalModal(entryId = null) {
     const pin = document.getElementById('journal-entry-pinned'); if (pin) pin.checked = !!entry?.pinned;
     const del = document.getElementById('journal-delete-btn'); if (del) del.style.display = entry ? 'block' : 'none';
     renderJournalLogSummary();
+    resetFormEdits(modal);
     modal.style.display = 'flex';
     // Existing entries open for reading; new ones for writing.
     setJournalPreview(!!(entry && entry.content));
@@ -508,9 +584,17 @@ function closeJournalModal() {
     activeJournalEntryId = null;
 }
 
-function handleJournalModalBackdrop(event) {
-    if (event.target && event.target.id === 'journal-entry-modal') closeJournalModal();
+// Cancel, ✕, Esc and a click outside: ask before throwing away what was typed.
+async function requestCloseJournal() {
+    const modal = document.getElementById('journal-entry-modal');
+    if (!modal || modal.style.display === 'none') return;
+    if (!(await okToDiscard(modal))) return;
+    closeJournalModal();
 }
+function handleJournalModalBackdrop(event) {
+    if (event.target && event.target.id === 'journal-entry-modal') requestCloseJournal();
+}
+function journalMarkEdited() { const m = document.getElementById('journal-entry-modal'); if (m) m.__edited = true; }
 
 function renderJournalPreview() {
     const pane = document.getElementById('journal-entry-preview');
@@ -558,6 +642,7 @@ function journalFormat(kind) {
     else if (kind === 'link') wrap('[[', ']]', 'Name');
     else if (kind === 'heading') prefix('## ');
     else if (kind === 'list') prefix('- ');
+    journalMarkEdited();
     ta.focus();
 }
 
@@ -640,6 +725,8 @@ ${body}
 // ---------------------------------------------------------------------------
 let notesFormDone = null;
 function notesCloseForm() { if (notesFormDone) notesFormDone(null); }
+// Esc on a form: the same as Cancel (asks before throwing away what was typed).
+registerModalCloser('notes-form-modal', () => { const w = document.getElementById('notes-form-modal'); if (w && w.__notesCancel) w.__notesCancel(); });
 
 function notesFormModal({ title, fields, values = {}, okText = 'Save', canDelete = false, extraHtml = '' }) {
     notesCloseForm();
@@ -657,7 +744,7 @@ function notesFormModal({ title, fields, values = {}, okText = 'Save', canDelete
             else if (f.type === 'select') input = `<select id="${id}" class="stat-input arc-input">${f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(v) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
             else input = `<input type="text" id="${id}" class="stat-input arc-input" value="${escapeHtml(String(v))}" placeholder="${escapeHtml(f.placeholder || '')}" ${f.list ? `list="${id}-list"` : ''} maxlength="${f.max || 200}">`
                 + (f.list ? `<datalist id="${id}-list">${f.list.map(o => `<option value="${escapeHtml(o)}"></option>`).join('')}</datalist>` : '');
-            return `<label class="arc-field ${f.wide ? 'nf-wide' : ''}"><span class="eyebrow">${escapeHtml(f.label)}</span>${input}</label>`;
+            return `<label class="arc-field ${f.wide ? 'nf-wide' : ''}"><span class="eyebrow">${escapeHtml(f.label)}</span>${input}${f.hint ? `<span class="nf-hint">${escapeHtml(f.hint)}</span>` : ''}</label>`;
         };
         wrap.innerHTML = `
             <div class="card notes-form-card">
@@ -676,26 +763,29 @@ function notesFormModal({ title, fields, values = {}, okText = 'Save', canDelete
             </div>`;
         const collect = () => Object.fromEntries(fields.map(f => [f.key, (document.getElementById(`nf-${f.key}`)?.value ?? '').trim()]));
         const done = value => {
-            notesFormDone = null;
+            if (notesFormDone === done) notesFormDone = null;
             wrap.remove();
             document.removeEventListener('keydown', onKey, true);
             resolve(value);
         };
+        // Cancel, ✕, Esc and a click outside ask first when something was typed.
+        const cancel = async () => { if (await okToDiscard(wrap)) done(null); };
+        wrap.__notesCancel = cancel;
         const onKey = e => {
             if (document.getElementById('sheet-dialog')) return;            // a confirm is open above us
-            if (e.key === 'Escape') { e.preventDefault(); done(null); }
-            else if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); done(collect()); }
+            if (e.key === 'Enter' && e.target.tagName === 'INPUT' && wrap.contains(e.target) && e.target.type !== 'checkbox') { e.preventDefault(); done(collect()); }
         };
         wrap.addEventListener('click', e => {
-            if (e.target === wrap) return done(null);
+            if (e.target === wrap) return cancel();
             const act = e.target.closest('[data-act]')?.dataset.act;
-            if (act === 'cancel') done(null);
+            if (act === 'cancel') cancel();
             else if (act === 'ok') done(collect());
             else if (act === 'delete') done('__delete__');
         });
         notesFormDone = done;
         document.addEventListener('keydown', onKey, true);
         document.body.appendChild(wrap);
+        watchFormEdits(wrap);
         wrap.querySelector('input, textarea, select')?.focus();
     });
 }
@@ -854,7 +944,8 @@ function addFactionPreset(name) {
     const craft = currentCharacter.arcana?.craft;
     if (craft?.order && typeof SECRET_CRAFTS === 'object' && SECRET_CRAFTS[craft.order]?.order === p.name) {
         f.standing = 1;
-        f.rank = `${SECRET_CRAFTS[craft.order].title}${craft.circle ? `, circle ${craft.circle}` : ''}`;
+        const circle = typeof craftCircleReached === 'function' ? craftCircleReached(SECRET_CRAFTS[craft.order], craft.learned || {}) : 0;
+        f.rank = `${SECRET_CRAFTS[craft.order].title}${circle ? `, circle ${circle}` : ''}`;
     }
     n.factions.push(f);
     renderFactions();
@@ -1087,6 +1178,7 @@ function initNotesListeners() {
             if (!currentCharacter) return;
             notesState();
             currentCharacter.bio[id.replace('bio-', '')] = e.target.value;
+            if (NOTES_GROW_IDS.includes(id)) notesAutoGrow(el);
             if (id === 'bio-languages') renderBioExtras();
             if (id === 'bio-deity') renderFactionPresetSelect();
             notesSave();
@@ -1103,7 +1195,19 @@ function initNotesListeners() {
     // Notes tab refreshes when it is opened, so links to the Dominion and Arcana tabs stay current.
     document.getElementById('btn-tab-notes')?.addEventListener('click', () => {
         try { renderBioExtras(); renderContacts(); renderFactions(); renderJournalEntriesList(); } catch (err) { console.error(err); }
+        requestAnimationFrame(notesAutoGrowAll);
     });
+    // The Languages box is one line that wraps: Enter does not add a new line.
+    document.getElementById('bio-languages')?.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+    window.addEventListener('resize', () => requestAnimationFrame(notesAutoGrowAll));
+    // Measured again whenever a box comes into view (the Notes tab is hidden while another tab is open).
+    if (typeof IntersectionObserver === 'function') {
+        const io = new IntersectionObserver(entries => entries.forEach(en => { if (en.isIntersecting) notesAutoGrow(en.target); }));
+        NOTES_GROW_IDS.forEach(id => { const el = document.getElementById(id); if (el) io.observe(el); });
+    }
+    // The journal window: remember typing, so closing it without saving asks first.
+    const jm = document.getElementById('journal-entry-modal');
+    if (jm) { watchFormEdits(jm); registerModalCloser('journal-entry-modal', requestCloseJournal); }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1111,7 +1215,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 Object.assign(window, {
-    syncNotesUI, renderJournalEntriesList, openJournalModal, closeJournalModal, handleJournalModalBackdrop,
+    syncNotesUI, renderJournalEntriesList, openJournalModal, closeJournalModal, handleJournalModalBackdrop, requestCloseJournal,
+    shrinkImageDataUrl, notesAutoGrowAll,
     saveCurrentJournalEntry, deleteCurrentJournalEntry, toggleJournalPin, setJournalPreview, journalFormat,
     insertLogIntoJournal, exportJournalDiary, renderNoteMarkup,
     triggerPortraitUpload, handlePortraitFile, removePortrait, renderPortraitUI,

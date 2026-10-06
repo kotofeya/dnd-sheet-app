@@ -64,13 +64,38 @@ function closeCreationGuide() {
     const m = document.getElementById('creation-modal');
     if (m) m.style.display = 'none';
 }
+// Has anything been entered in any step? (Then closing asks first.)
+function ccHasData() {
+    if (!cc) return false;
+    return Boolean(cc.name.trim() || cc.gender.trim() || cc.homeland.trim() || cc.concept.trim() || cc.base || cc.cls
+        || cc.hp !== null || cc.gold !== null || cc.weapons.length || cc.spell || Object.keys(cc.cart).length || (cc.languages || '').trim());
+}
+// ✕, Esc and a click outside the window.
+async function ccRequestClose() {
+    const m = document.getElementById('creation-modal');
+    if (!m || m.style.display === 'none') return;
+    if (ccHasData() && !(await sheetConfirm('Close the character guide? What you have entered so far will be lost.', 'Close the guide'))) return;
+    closeCreationGuide();
+}
+registerModalCloser('creation-modal', ccRequestClose);
+document.addEventListener('DOMContentLoaded', () => {
+    const m = document.getElementById('creation-modal');
+    if (m) m.addEventListener('click', e => { if (e.target === m) ccRequestClose(); });
+});
 function ccClassInfo(cls = cc.cls) { return ClassesDatabase[cls] || null; }
 function ccAdj(cls = cc.cls) {
     const a = CLASS_ADJUSTMENTS[cls] || { up: [], down: [] };
     const min = { ...(ccClassInfo(cls)?.minScores || {}), ...(a.min || {}) };
     return { ...a, min };
 }
-function ccScores() { return cc.adjusted || cc.base || {}; }
+// PC1 Table 1: a woodland being's scores cannot go above its race's maximum.
+function ccClampMax(scores) {
+    if (!scores) return scores;
+    const out = { ...scores };
+    Object.entries((cc.cls && ccClassInfo(cc.cls)?.maxScores) || {}).forEach(([k, max]) => { if (out[k] > max) out[k] = max; });
+    return out;
+}
+function ccScores() { return cc.adjusted || ccClampMax(cc.base) || {}; }
 function ccMainClasses() {
     const sel = document.getElementById('char-class');
     const opts = sel ? [...sel.options].map(o => o.value) : Object.keys(CLASS_ADJUSTMENTS);
@@ -137,7 +162,7 @@ function ccAdjust(k, dir) {
     const { a, spare } = ccAdjustState();
     const cur = cc.adjusted[k], base = cc.base[k];
     if (a.up.includes(k)) {
-        if (dir > 0 && cur < 18 && spare > 0) cc.adjusted[k]++;
+        if (dir > 0 && cur < Math.min(18, ccClassInfo(cc.cls)?.maxScores?.[k] ?? 18) && spare > 0) cc.adjusted[k]++;
         if (dir < 0 && cur > base) cc.adjusted[k]--;
     }
     if (a.down.includes(k)) {
@@ -291,6 +316,7 @@ function ccStepProblem(step = cc.step) {
     if (step === 2 && !cc.cls) return 'Choose a class.';
     if (step === 3 && ccUnmet().length) return `This class still needs ${ccUnmet().join(', ')}.`;
     if (step === 4 && (cc.hp === null || cc.gold === null)) return 'Roll (or enter) hit points and starting gold.';
+    if (step === 6 && cc.gold !== null && ccCartTotal() > cc.gold + 1e-9) return `Your purchases cost ${ccCartTotal().toLocaleString('en-US')} gp, more than your ${cc.gold.toLocaleString('en-US')} gp: put something back.`;
     return '';
 }
 function ccGo(delta) {
@@ -299,7 +325,7 @@ function ccGo(delta) {
         if (p) { const el = document.getElementById('creation-problem'); if (el) el.textContent = p; return; }
     }
     cc.step = Math.max(0, Math.min(CREATION_STEPS.length - 1, cc.step + delta));
-    if (cc.step === 3 && !cc.adjusted) cc.adjusted = { ...cc.base };
+    if (cc.step === 3 && !cc.adjusted) cc.adjusted = ccClampMax(cc.base);
     renderCreation();
 }
 function ccGoTo(i) {
@@ -311,7 +337,10 @@ function ccGoTo(i) {
 function renderCreation() {
     if (!cc) return;
     const steps = document.getElementById('creation-steps');
-    if (steps) steps.innerHTML = CREATION_STEPS.map((s, i) => `<button type="button" class="${i === cc.step ? 'on' : ''}" onclick="ccGoTo(${i})">${i + 1}. ${s}</button>`).join('');
+    if (steps) {
+        steps.innerHTML = CREATION_STEPS.map((s, i) => `<button type="button" class="${i === cc.step ? 'on' : ''}" onclick="ccGoTo(${i})" ${i === cc.step ? 'aria-current="step"' : ''}>${i + 1}. ${s}</button>`).join('');
+        steps.querySelector('.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
     renderCreationBody();
     ccUpdateFooter();
 }
@@ -498,6 +527,6 @@ function finishCreation() {
 }
 
 Object.assign(window, {
-    openCreationGuide, closeCreationGuide, renderCreation, renderCreationBody, ccGo, ccGoTo, ccSet, ccRollAbilities, ccSetBase,
+    openCreationGuide, closeCreationGuide, ccRequestClose, renderCreation, renderCreationBody, ccGo, ccGoTo, ccSet, ccRollAbilities, ccSetBase,
     ccPickClass, ccAdjust, ccRollHp, ccRollGold, ccToggleWeapon, ccBuy, ccBuyFeatWeapons, createBlankCharacter, finishCreation,
 });

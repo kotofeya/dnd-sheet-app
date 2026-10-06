@@ -18,11 +18,11 @@ function switchTab(tabId) {
         // 3. Подсвечиваем активную кнопку
         const allBtns = document.querySelectorAll('.tab-btn');
         allBtns.forEach(btn => {
-            const onclickAttr = btn.getAttribute('onclick') || '';
-            if (onclickAttr.includes(tabId)) {
+            if (tabButtonTarget(btn) === tabId) {
                 btn.classList.add('active');
             }
         });
+        syncTabAria();
 
         // 4. Безопасные вызовы модулей под защитой try/catch
         if (tabId === 'tab-features' && typeof updateClassFeaturesDisplay === 'function') {
@@ -60,6 +60,146 @@ function switchTab(tabId) {
 }
 
 window.switchTab = switchTab;
+
+// The tab bar is a tablist: each tab button names the panel it shows and says whether it is selected.
+function tabButtonTarget(btn) {
+    const m = (btn.getAttribute('onclick') || '').match(/switchTab\(\s*['"]([^'"]+)['"]/);
+    return m ? m[1] : '';
+}
+function syncTabAria() {
+    const bar = document.querySelector('.tabs');
+    if (!bar) return;
+    bar.setAttribute('role', 'tablist');
+    if (!bar.hasAttribute('aria-label')) bar.setAttribute('aria-label', 'Sheet sections');
+    bar.querySelectorAll('.tab-btn').forEach(btn => {
+        const target = tabButtonTarget(btn);
+        const selected = btn.classList.contains('active');
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+        btn.setAttribute('tabindex', selected ? '0' : '-1');
+        if (target) {
+            btn.setAttribute('aria-controls', target);
+            const panel = document.getElementById(target);
+            if (panel) {
+                panel.setAttribute('role', 'tabpanel');
+                if (!btn.id) btn.id = `tabbtn-${target}`;
+                panel.setAttribute('aria-labelledby', btn.id);
+            }
+        }
+    });
+}
+// Arrow keys move between tabs (Home/End jump to the first/last), as in any tab list.
+document.addEventListener('keydown', e => {
+    const btn = e.target && e.target.closest && e.target.closest('.tabs .tab-btn');
+    if (!btn || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    const tabs = [...document.querySelectorAll('.tabs .tab-btn')].filter(t => t.offsetParent !== null);
+    const i = tabs.indexOf(btn);
+    if (i < 0) return;
+    const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs[tabs.length - 1]
+        : tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+    e.preventDefault();
+    next.focus();
+    switchTab(tabButtonTarget(next));
+});
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', syncTabAria); else syncTabAria();
+window.syncTabAria = syncTabAria;
+
+// ---- File menu (Export, Import, History, Backups, Delete) ----------------------------------
+function fileMenuEl() { return document.getElementById('file-menu'); }
+function fileMenuItems() { return [...(fileMenuEl()?.querySelectorAll('[role="menuitem"]') || [])].filter(b => b.style.display !== 'none' && !b.disabled); }
+function openFileMenu(focusFirst = true) {
+    const menu = fileMenuEl(), btn = document.getElementById('file-menu-btn');
+    if (!menu || !btn) return;
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    if (focusFirst) fileMenuItems()[0]?.focus();
+}
+function closeFileMenu(returnFocus = true) {
+    const menu = fileMenuEl(), btn = document.getElementById('file-menu-btn');
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    if (btn) { btn.setAttribute('aria-expanded', 'false'); if (returnFocus) btn.focus(); }
+}
+function toggleFileMenu() {
+    const menu = fileMenuEl();
+    if (!menu) return;
+    if (menu.hidden) openFileMenu(true); else closeFileMenu(true);
+}
+(function setupFileMenu() {
+    const start = () => {
+        const menu = fileMenuEl(), btn = document.getElementById('file-menu-btn');
+        if (!menu || !btn) return;
+        if (typeof registerModalCloser === 'function') registerModalCloser('file-menu', () => closeFileMenu(true));
+        // Choosing an item closes the menu first (the item's own action then runs).
+        menu.addEventListener('click', e => { if (e.target.closest('[role="menuitem"]')) closeFileMenu(false); }, true);
+        menu.addEventListener('keydown', e => {
+            const items = fileMenuItems();
+            const i = items.indexOf(document.activeElement);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const n = items.length; if (!n) return;
+                items[(i + (e.key === 'ArrowDown' ? 1 : -1) + n) % n].focus();
+            } else if (e.key === 'Home' || e.key === 'End') {
+                e.preventDefault();
+                (e.key === 'Home' ? items[0] : items[items.length - 1])?.focus();
+            } else if (e.key === 'Tab') {
+                closeFileMenu(false);
+            }
+        });
+        btn.addEventListener('keydown', e => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                openFileMenu(false);
+                const items = fileMenuItems();
+                (e.key === 'ArrowDown' ? items[0] : items[items.length - 1])?.focus();
+            }
+        });
+        // A click anywhere else closes it.
+        document.addEventListener('mousedown', e => {
+            if (!menu.hidden && !e.target.closest('#file-menu-wrap')) closeFileMenu(false);
+        });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+window.toggleFileMenu = toggleFileMenu;
+window.closeFileMenu = closeFileMenu;
+
+// ---- Class, level and XP lock --------------------------------------------------------------
+// Normally these change through XP awards and the level-up window; "Edit" in the header unlocks
+// them for a correction by hand. A new blank sheet starts unlocked.
+const LV_LOCK_FIELDS = ['char-class', 'char-subclass', 'char-level', 'char-sublevel', 'char-xp', 'char-subxp'];
+let levelsLocked = true;
+function applyLevelsLock() {
+    const hasChar = Boolean(currentCharacter);
+    const group = document.getElementById('lv-lock-group');
+    if (group) group.style.display = hasChar ? '' : 'none';
+    const locked = hasChar && levelsLocked;
+    LV_LOCK_FIELDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.tagName === 'SELECT') el.disabled = locked;
+        else el.readOnly = locked;
+        el.classList.toggle('lv-locked', locked);
+        if (locked) el.title = 'Locked: changes through XP awards and the level-up window. Press Edit in the header to change it by hand.';
+        else if (el.title.startsWith('Locked:')) el.title = '';
+    });
+    const btn = document.getElementById('lv-lock-btn');
+    if (btn) {
+        btn.setAttribute('aria-pressed', locked ? 'false' : 'true');
+        const text = document.getElementById('lv-lock-text');
+        if (text) text.textContent = locked ? 'Edit' : 'Done';
+        const icon = btn.querySelector('[data-icon], .ui-icon');
+        if (icon && typeof getIcon === 'function') icon.outerHTML = getIcon(locked ? 'lock' : 'unlock', 14);
+        btn.setAttribute('aria-label', locked ? 'Edit class, level and XP by hand' : 'Done: lock class, level and XP');
+    }
+}
+function setLevelsLocked(locked) { levelsLocked = Boolean(locked); applyLevelsLock(); }
+function toggleLevelsLock() {
+    setLevelsLocked(!levelsLocked);
+    if (!levelsLocked) document.getElementById('char-level')?.focus();
+}
+window.toggleLevelsLock = toggleLevelsLock;
+window.setLevelsLocked = setLevelsLocked;
 
 async function loadRoster() {
     const roster = await window.api.getCharactersList();
@@ -158,12 +298,17 @@ function openDeityInfo(name) {
             ${spellsHtml || (d.spellNote || d.druidSpellLevels ? '' : '<p class="deity-note">None listed.</p>')}
             <p class="deity-src">Codex Immortalis${d.source ? ' · sources: ' + escapeHtml(d.source) : ''}; spells: Tome of the Magic of Mystara Vol. 2, Appendix.</p>
         </div>`;
-    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
-    const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
-    wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
-    document.addEventListener('keydown', onKey, true);
+    // Read-only window: Esc (registered below) and a click outside close it.
+    wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('[data-close]')) closeDeityInfo(); });
     document.body.appendChild(wrap);
+    wrap.querySelector('[data-close]')?.focus();
 }
+function closeDeityInfo() {
+    document.getElementById('deity-info')?.remove();
+    document.getElementById('deity-info-btn')?.focus();
+}
+if (typeof registerModalCloser === 'function') registerModalCloser('deity-info', closeDeityInfo);
+window.closeDeityInfo = closeDeityInfo;
 
 function hasDivineCasting(character) {
     return getCasterProfiles(character).some(p => p.type === 'divine');
@@ -187,6 +332,15 @@ function updateDeityDisplay() {
         const warn = noCl || (currentCharacter.deity ? deityAlignmentWarning(currentCharacter.deity, currentCharacter.alignment) : '');
         select.title = fixed ? `${option.name}s serve ${fixed} only` : warn;
         select.classList.toggle('deity-mismatch', Boolean(warn));
+        // A fixed deity is not a choice: show it as plain text instead of a greyed-out drop-down.
+        const fixedText = document.getElementById('char-deity-fixed');
+        if (fixedText) {
+            const d = fixed ? GlobalDeitiesDatabase[fixed] : null;
+            fixedText.textContent = fixed ? (d && d.alignment ? `${fixed} (${d.alignment})` : fixed) : '';
+            fixedText.title = fixed ? `${option.name}s serve ${fixed} only` : '';
+            fixedText.style.display = fixed ? '' : 'none';
+            select.style.display = fixed ? 'none' : '';
+        }
     }
     const infoBtn = document.getElementById('deity-info-btn');
     if (infoBtn) infoBtn.disabled = !currentCharacter.deity;
@@ -359,6 +513,7 @@ function updateClassStats() {
     if (typeof syncWeaponFeatsUI === 'function') syncWeaponFeatsUI();
     if (typeof renderCombatManoeuvres === 'function') renderCombatManoeuvres();
     if (typeof renderArcana === 'function') { try { renderArcana(); } catch (e) { console.error(e); } }
+    if (typeof renderStatusStrip === 'function') renderStatusStrip();   // THAC0 is set here
 }
 
 function saveChanges() {
@@ -489,6 +644,14 @@ function normalizeCharacter(char) {
     char.conDrain = clampInt(char.conDrain, 0, 18, 0);
     applyConDrain(char);
     sanitizeIds(char);
+    if (Array.isArray(char.inventory)) {
+        const seen = new Set();
+        char.inventory.forEach(it => {
+            if (!it || typeof it !== 'object') return;
+            if (it.qty === undefined || it.qty === null || it.qty === '' || !Number.isFinite(Number(it.qty))) it.qty = 1;
+            if (it.id) { if (seen.has(it.id)) it.id = `it_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; seen.add(it.id); }
+        });
+    }
     return char;
 }
 
@@ -538,7 +701,9 @@ function sanitizeIds(char) {
         });
     }
     // Arcana and dominion lists also put their ids in onclick handlers.
-    const cleanList = list => { if (Array.isArray(list)) list.forEach(e => { if (e && typeof e === 'object') e.id = clean(e.id); }); };
+    const freshId = () => `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const cleanList = list => { if (Array.isArray(list)) list.forEach(e => { if (e && typeof e === 'object') e.id = (e.id === undefined || e.id === null || e.id === '') ? freshId() : clean(e.id); }); };
+    cleanList(char.chronicle);
     if (char.arcana && typeof char.arcana === 'object') {
         cleanList(char.arcana.research);
         if (char.arcana.mentor && typeof char.arcana.mentor === 'object') cleanList(char.arcana.mentor.spells);
@@ -591,6 +756,8 @@ function loadCharacterToUI(char) {
     safeSetVal('char-alignment', char.alignment || "Neutral");
     writeXp('char-xp', char.experiencePoints || 0);
     writeXp('char-subxp', char.subClassXP || 0);
+    const xb = char.xpBonuses || {};
+    [['bonus-map', 'map'], ['bonus-married', 'married'], ['sub-bonus-map', 'subMap'], ['sub-bonus-married', 'subMarried']].forEach(([id, k]) => { const el = document.getElementById(id); if (el) el.checked = !!xb[k]; });
 
     if (char.abilities) {
         safeSetVal('str-score', char.abilities.strength?.score ?? 10);
@@ -657,6 +824,9 @@ function loadCharacterToUI(char) {
 
     safeSetText('xp-message', '');
     safeSetText('xp-preview', '');
+    // Class, level and XP start locked once the character has a class (a blank sheet unlocks itself).
+    setLevelsLocked(Boolean(char.characterClass));
+    if (typeof renderStatusStrip === 'function') renderStatusStrip();
 }
 
 // Слушатели ростера
@@ -702,13 +872,15 @@ function createNewCharacterSheet() {
         savingThrows: { deathRayPoison: 12, magicWands: 13, paralysisTurnToStone: 14, dragonBreath: 15, rodStaffSpell: 16 }
     };
     loadCharacterToUI(newChar);
+    setLevelsLocked(false);                // a blank sheet: choose class and level freely
     saveChanges();
 }
 window.createNewCharacterSheet = createNewCharacterSheet;
 
 document.getElementById('delete-char-btn').addEventListener('click', async () => {
     if (!currentFileName || !currentCharacter) return;
-    const isConfirmed = await sheetConfirm(`Are you sure you want to delete ${currentCharacter.name}? This cannot be undone.`, 'Delete');
+    const who = currentCharacter.name || 'this character';
+    const isConfirmed = await sheetConfirm(`Delete ${who}? The character is removed from the roster.\n\nCopies already made by Backups (weekly, and before each level-up) are kept, so it can be restored from File > Backups. Use "Back up all now" there first if you want a copy of it as it is today.`, 'Delete character');
     if (isConfirmed) {
         debouncedSave.cancel();
         await saveQueue;                   // let any in-flight save finish before deleting
@@ -719,6 +891,8 @@ document.getElementById('delete-char-btn').addEventListener('click', async () =>
         document.getElementById('char-name').value = "";
         document.querySelectorAll('input.stat-input').forEach(input => input.value = '');
         updateXPDisplay(); 
+        applyLevelsLock();
+        if (typeof renderStatusStrip === 'function') renderStatusStrip();
         loadRoster(); 
     }
 });
@@ -739,8 +913,9 @@ document.getElementById('add-xp-btn').addEventListener('click', () => {
     const finalAddedXP = Math.floor(baseGainedXP + (baseGainedXP * (totalBonusPct / 100)));
 
     const xpTableForChar = getXpTableFor(currentCharacter);
-    let msg = `Added ${finalAddedXP} XP.`;
+    let msg = `Added ${finalAddedXP.toLocaleString('en-US')} XP.`;
     const levelBefore = Number(currentCharacter.level) || 1;
+    const stageBefore = typeof getCreatureStage === 'function' ? getCreatureStage(currentCharacter) : null;
     const xpBefore = Number(currentCharacter.experiencePoints) || 0;
 
     if (xpTableForChar) {
@@ -751,18 +926,18 @@ document.getElementById('add-xp-btn').addEventListener('click', () => {
 
         let newXP = currentCharacter.experiencePoints + finalAddedXP;
         if (currentLvl < 36) {
-            if (xpTable[capLvl] !== undefined) {
-                const maxAllowedXP = xpTable[capLvl] - 1;
-                if (newXP > maxAllowedXP) {
-                    newXP = maxAllowedXP;
-                    msg += ` (Capped: max 1 level per award)`;
-                }
+            // One level per award; a creature hero's stages before 1st level count as levels too.
+            const maxAllowedXP = typeof xpAwardCap === 'function' ? xpAwardCap(currentCharacter)
+                : (xpTable[capLvl] !== undefined ? xpTable[capLvl] - 1 : Infinity);
+            if (newXP > maxAllowedXP) {
+                newXP = maxAllowedXP;
+                msg += ` (Capped: at most one level per award.)`;
             }
             currentCharacter.experiencePoints = newXP;
             if (currentCharacter.experiencePoints >= xpTable[nextLvl]) {
                 currentCharacter.level = nextLvl;
                 document.getElementById('char-level').value = currentCharacter.level;
-                msg += ` LEVEL UP! You are now level ${currentCharacter.level}!`;
+                msg += ` Level up! You are now level ${currentCharacter.level}.`;
                 updateClassStats();
                 updateClassFeaturesDisplay();
                 syncWeaponFeatsUI();
@@ -788,12 +963,15 @@ document.getElementById('add-xp-btn').addEventListener('click', () => {
     if (monsterXP) parts.push(`${monsterXP.toLocaleString('en-US')} monsters`);
     if (treasureXP) parts.push(`${treasureXP.toLocaleString('en-US')} treasure`);
     const bonusTxt = totalBonusPct ? ` ${totalBonusPct > 0 ? '+' : ''}${totalBonusPct}% bonus` : '';
-    const capTxt = credited < finalAddedXP ? ` (capped at ${credited.toLocaleString('en-US')}: one level per award)` : '';
+    const capTxt = credited < finalAddedXP ? ` (capped at ${credited.toLocaleString('en-US')}: one level or stage per award)` : '';
     addChronicleEntry('xp', `${source ? source + ': ' : ''}+${finalAddedXP.toLocaleString('en-US')} XP (${parts.join(' + ')}${bonusTxt})${capTxt}. Total ${Number(currentCharacter.experiencePoints).toLocaleString('en-US')}.`,
         { source, monster: monsterXP, treasure: treasureXP, bonusPct: totalBonusPct, awarded: finalAddedXP, credited, total: currentCharacter.experiencePoints });
     if (sourceEl) sourceEl.value = '';
     const levelAfter = Number(currentCharacter.level) || 1;
-    if (levelAfter > levelBefore) openLevelUpDialog(levelBefore, levelAfter);
+    // Creature heroes also grow through stages before 1st level (new Hit Dice, AC, attacks...).
+    const stageAfter = typeof getCreatureStage === 'function' ? getCreatureStage(currentCharacter) : null;
+    if (stageBefore && stageAfter !== stageBefore) openLevelUpDialog(levelBefore, levelAfter, { stageFrom: stageBefore, stageTo: stageAfter });
+    else if (levelAfter > levelBefore) openLevelUpDialog(levelBefore, levelAfter);
     document.getElementById('calc-xp-monster').value = '';
     document.getElementById('calc-xp-treasure').value = '';
     document.getElementById('xp-preview').innerText = ''; 
@@ -816,7 +994,7 @@ document.getElementById('sub-add-xp-btn').addEventListener('click', () => {
     const finalAddedXP = Math.floor(baseGainedXP + (baseGainedXP * (totalBonusPct / 100)));
 
     const classInfo = ClassesDatabase[currentCharacter.subClass];
-    let msg = `Added ${finalAddedXP} Sub-XP.`;
+    let msg = `Added ${finalAddedXP.toLocaleString('en-US')} sub-class XP.`;
     const subLevelBefore = Number(currentCharacter.subClassLevel) || 1;
     const subXpBefore = Number(currentCharacter.subClassXP) || 0;
 
@@ -829,23 +1007,24 @@ document.getElementById('sub-add-xp-btn').addEventListener('click', () => {
         let newSubXP = (currentCharacter.subClassXP || 0) + finalAddedXP;
         if (currentSubLvl < 36) {
             if (xpTable[capSubLvl] !== undefined) {
-                const maxAllowedSubXP = xpTable[capSubLvl] - 1;
+                const maxAllowedSubXP = Math.max(xpTable[capSubLvl] - 1, subXpBefore);
                 if (newSubXP > maxAllowedSubXP) {
                     newSubXP = maxAllowedSubXP;
-                    msg += ` (Sub-XP capped)`;
+                    msg += ` (Capped: at most one level per award.)`;
                 }
             }
             // GAZ13: a shaman's level can never exceed the character's regular level.
             const mainLvl = Number(currentCharacter.level) || 1;
             if (classInfo.maxLevelIsMain && nextSubLvl > mainLvl && xpTable[nextSubLvl] !== undefined && newSubXP >= xpTable[nextSubLvl]) {
-                newSubXP = xpTable[nextSubLvl] - 1;
+                newSubXP = Math.max(xpTable[nextSubLvl] - 1, subXpBefore);
                 msg += ` (Capped: ${currentCharacter.subClass} level cannot exceed your ${currentCharacter.characterClass} level)`;
             }
             currentCharacter.subClassXP = newSubXP;
-            if (currentCharacter.subClassXP >= xpTable[nextSubLvl]) {
+            const blockedByMain = classInfo.maxLevelIsMain && nextSubLvl > mainLvl;
+            if (!blockedByMain && currentCharacter.subClassXP >= xpTable[nextSubLvl]) {
                 currentCharacter.subClassLevel = nextSubLvl;
                 document.getElementById('char-sublevel').value = currentCharacter.subClassLevel;
-                msg += ` SUB-CLASS LEVEL UP!`;
+                msg += ` Sub-class level up! Now level ${currentCharacter.subClassLevel}.`;
                 updateSubClassDisplay();
                 updateClassFeaturesDisplay();
             }
@@ -861,11 +1040,19 @@ document.getElementById('sub-add-xp-btn').addEventListener('click', () => {
     {
         const credited = (Number(currentCharacter.subClassXP) || 0) - subXpBefore;
         const capTxt = credited < finalAddedXP ? ` (capped at ${credited.toLocaleString('en-US')})` : '';
-        addChronicleEntry('subxp', `${currentCharacter.subClass}: +${finalAddedXP.toLocaleString('en-US')} XP${totalBonusPct ? ` (${totalBonusPct > 0 ? '+' : ''}${totalBonusPct}% bonus)` : ''}${capTxt}. Total ${Number(currentCharacter.subClassXP).toLocaleString('en-US')}.`,
-            { awarded: finalAddedXP, credited, bonusPct: totalBonusPct, total: currentCharacter.subClassXP });
+        const subSourceEl = document.getElementById('sub-calc-xp-source');
+        const source = subSourceEl ? subSourceEl.value.trim() : '';
+        const parts = [];
+        if (monsterXP) parts.push(`${monsterXP.toLocaleString('en-US')} monsters`);
+        if (treasureXP) parts.push(`${treasureXP.toLocaleString('en-US')} treasure`);
+        const bonusTxt = totalBonusPct ? ` ${totalBonusPct > 0 ? '+' : ''}${totalBonusPct}% bonus` : '';
+        addChronicleEntry('subxp', `${source ? source + ': ' : ''}${currentCharacter.subClass} +${finalAddedXP.toLocaleString('en-US')} XP (${parts.join(' + ')}${bonusTxt})${capTxt}. Total ${Number(currentCharacter.subClassXP).toLocaleString('en-US')}.`,
+            { source, monster: monsterXP, treasure: treasureXP, awarded: finalAddedXP, credited, bonusPct: totalBonusPct, total: currentCharacter.subClassXP });
+        if (subSourceEl) subSourceEl.value = '';
         const subLevelAfter = Number(currentCharacter.subClassLevel) || 1;
         if (subLevelAfter > subLevelBefore) {
-            addChronicleEntry('level', `${currentCharacter.subClass} level ${subLevelBefore} → ${subLevelAfter}.`, { subClass: currentCharacter.subClass, from: subLevelBefore, to: subLevelAfter });
+            if (typeof openLevelUpDialog === 'function') openLevelUpDialog(subLevelBefore, subLevelAfter, { sub: true });
+            else addChronicleEntry('level', `${currentCharacter.subClass} level ${subLevelBefore} → ${subLevelAfter}.`, { subClass: currentCharacter.subClass, from: subLevelBefore, to: subLevelAfter });
         }
     }
     document.getElementById('sub-calc-xp-monster').value = '';
@@ -908,7 +1095,7 @@ document.addEventListener('input', (e) => {
             }
         if (statPrefix === 'dex' || statPrefix === 'con') updateCombatVitals();
         if (statPrefix === 'str' || statPrefix === 'dex') {
-                if (typeof renderWeaponFeats === 'function') renderWeaponFeats();
+                if (typeof syncWeaponFeatsUI === 'function') syncWeaponFeatsUI();
             }
     }
 
@@ -975,6 +1162,9 @@ document.addEventListener('input', (e) => {
 
     if (e.target.id === 'char-xp') {
         currentCharacter.experiencePoints = readXp('char-xp');
+        // Not below the first stage (young creature heroes start with negative XP; others at 0).
+        const lowest = typeof lowestXpFor === 'function' ? lowestXpFor(currentCharacter) : 0;
+        if (currentCharacter.experiencePoints < lowest) { currentCharacter.experiencePoints = lowest; writeXp('char-xp', lowest); }
         const levelTable = getXpTableFor(currentCharacter);
         if (levelTable) {
             while (currentCharacter.level < 36 && currentCharacter.experiencePoints >= levelTable[currentCharacter.level + 1]) {
@@ -996,6 +1186,7 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
     if (e.target.id === 'character-roster') return;
+    if (!currentCharacter) return;
 
     if (e.target.id === 'char-class') {
         currentCharacter.characterClass = e.target.value;
@@ -1095,7 +1286,7 @@ initApp();
 // ЭКСПОРТ В JSON
 function exportCharacterJSON() {
     if (!currentCharacter) {
-        alert('No character loaded to export!');
+        sheetAlert('Choose a character to export first.');
         return;
     }
 
@@ -1142,7 +1333,7 @@ function handleImportFile(event) {
 
             // Базовая валидация структуры листа персонажа BECMI
             if (!importedData || typeof importedData !== 'object' || (!importedData.characterClass && !importedData.class)) {
-                alert('Import Error: The selected file does not appear to be a valid BECMI character sheet.');
+                sheetAlert('That file does not look like a character file from this sheet (it has no class). Nothing was imported.');
                 return;
             }
 
@@ -1154,10 +1345,10 @@ function handleImportFile(event) {
             loadCharacterToUI(importedData);
             await saveChanges();
 
-            alert(`Successfully imported "${importedData.name || 'Hero'}"!`);
+            sheetToast(`Imported "${importedData.name || 'Hero'}" as a new character.`);
         } catch (err) {
             console.error('Failed to parse JSON file:', err);
-            alert('Import Error: Invalid or corrupted JSON file.');
+            sheetAlert('Could not read that file: it is not a valid character file. Nothing was imported.');
         }
     };
     reader.readAsText(file);

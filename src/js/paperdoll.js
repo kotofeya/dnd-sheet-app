@@ -95,7 +95,7 @@ function anyClassArmourOk(item, character) {
     const cls = character?.characterClass || character?.class || '';
     return Boolean(item && item.isArmor && item.anyClass) && cls !== 'Mystic';
 }
-const SLOT_LABELS = { head: 'head', neck: 'neck', cloak: 'cloak', mainHand: 'main hand', armor: 'armour', offHand: 'off hand', ringLeft: 'left hand', ringRight: 'right hand', belt: 'belt', hands: 'hands', boots: 'feet' };
+const SLOT_LABELS = { head: 'head', neck: 'neck', cloak: 'cloak', mainHand: 'main hand', armor: 'armour', offHand: 'off hand', ringLeft: 'left-hand ring', ringRight: 'right-hand ring', belt: 'belt', hands: 'hands', boots: 'feet' };
 
 // Equip an inventory item straight from the inventory list (or the catalogue).
 async function equipInventoryItem(index, wantSlot = null) {
@@ -118,7 +118,8 @@ async function equipInventoryItem(index, wantSlot = null) {
     if (current) {
         if (current.isCursed) { await sheetAlert(`${current.name} is cursed and cannot be removed from your ${SLOT_LABELS[slot]} without remove curse.`); return false; }
         if (!(await sheetConfirm(`Swap ${current.name} for ${item.name}? ${current.name} goes back to the backpack.`, 'Swap'))) return false;
-        currentCharacter.inventory.push({ ...current, location: 'Backpack', qty: 1 });
+        const { id: _id, uid: _uid, ...back } = current;
+        currentCharacter.inventory.push({ ...back, location: 'Backpack', qty: 1 });
         pd[slot] = null;
     }
     activeSelectingSlot = slot;
@@ -134,7 +135,8 @@ function catalogueChoicesForSlot(slot) {
     const db = window.GlobalWeaponsDatabase || {};
     if (slot === 'mainHand' || slot === 'offHand') {
         Object.values(db).filter(w => !/^(oil|holy|rock|unarmed)/.test(w.id) && (slot === 'mainHand' || w.type === '1h-melee'))
-            .sort((a, b) => a.name.localeCompare(b.name)).forEach(w => out.push({ kind: 'weapon', id: w.id, name: w.name, note: 'Weapon' }));
+            .sort((a, b) => a.name.localeCompare(b.name)).forEach(w => out.push({ kind: 'weapon', id: w.id, name: w.name, note: 'Weapon',
+                unusable: typeof canCharacterUseWeapon === 'function' && currentCharacter && !canCharacterUseWeapon(w, currentCharacter) ? pdNotUsableText() : '' }));
     }
     if (typeof RC_MAGIC_ITEMS !== 'undefined') {
         RC_MAGIC_ITEMS.forEach(x => {
@@ -145,11 +147,18 @@ function catalogueChoicesForSlot(slot) {
             const note = x.houseRule ? 'House rule' : x.group === 'tech' ? 'Blackmoor (DA3)' : 'Rules Cyclopedia';
             // Items with variants (rings of protection +1..+4, bracers AC 7..3) are listed one by one.
             const barred = itemRestriction(x, slot, currentCharacter) ? (currentCharacter?.characterClass === 'Mystic' ? 'Not for mystics' : 'Does not fit') : '';
-            if (Array.isArray(x.variants) && x.variants.length) x.variants.forEach((v, i) => out.push({ kind: 'magic', id: `${x.id}~${i}`, name: `${x.name} ${v.suffix}`, note, cursed: x.cursed, barred, anyClass: x.anyClass }));
-            else out.push({ kind: 'magic', id: x.id, name: x.name, note, cursed: x.cursed, barred, anyClass: x.anyClass });
+            const usableNote = typeof magicUsableNote === 'function' ? magicUsableNote(x) : '';
+            const unusable = /^usable by/i.test(usableNote) ? pdNotUsableText() : '';
+            if (Array.isArray(x.variants) && x.variants.length) x.variants.forEach((v, i) => out.push({ kind: 'magic', id: `${x.id}~${i}`, name: `${x.name} ${v.suffix}`, note, cursed: x.cursed, barred, unusable, anyClass: x.anyClass }));
+            else out.push({ kind: 'magic', id: x.id, name: x.name, note, cursed: x.cursed, barred, unusable, anyClass: x.anyClass });
         });
     }
     return out;
+}
+// "Not usable by Magic-User" for catalogue items the character's class cannot use.
+function pdNotUsableText() {
+    const cls = (currentCharacter && (currentCharacter.characterClass || currentCharacter.class)) || 'your class';
+    return `Not usable by ${cls}`;
 }
 let paperdollModalAnyClassOnly = false;
 function renderSlotCatalogue() {
@@ -159,7 +168,7 @@ function renderSlotCatalogue() {
     const items = catalogueChoicesForSlot(activeSelectingSlot).filter(c => (!q || c.name.toLowerCase().includes(q)) && (!paperdollModalAnyClassOnly || c.anyClass));
     list.innerHTML = items.length ? items.map(c => `
         <button type="button" class="pd-cat-item" ${c.barred ? `disabled title="${escapeHtml(c.barred)}" style="opacity: .5; cursor: not-allowed;"` : `onclick="equipFromCatalogue('${c.kind}', '${c.id}')"`}>
-            <span>${escapeHtml(c.name)}${c.cursed ? ' <span class="tag" style="color: var(--danger);">cursed</span>' : ''}${c.barred ? ` <span class="tag" style="color: var(--danger);">${escapeHtml(c.barred)}</span>` : ''}</span>
+            <span>${escapeHtml(c.name)}${c.cursed ? ' <span class="tag" style="color: var(--danger);">Cursed</span>' : ''}${c.barred ? ` <span class="tag" style="color: var(--danger);">${escapeHtml(c.barred)}</span>` : ''}${!c.barred && c.unusable ? ` <span class="tag pd-unusable" style="color: var(--warn-strong);" title="Your class cannot normally use this">${escapeHtml(c.unusable)}</span>` : ''}</span>
             <span class="eyebrow">${escapeHtml(c.note)}</span>
         </button>`).join('') : '<div class="ledger-note">Nothing in the catalogue fits this slot.</div>';
 }
@@ -169,11 +178,13 @@ function equipFromCatalogue(kind, id) {
     const slot = activeSelectingSlot;
     if (!Array.isArray(currentCharacter.inventory)) currentCharacter.inventory = [];
     const before = currentCharacter.inventory.length;
-    if (kind === 'weapon') addWeaponFromCatalogue(id);
-    else if (kind === 'magic') { const [mid, vi] = String(id).split('~'); addMagicFromCatalogue(mid, vi === undefined ? null : vi); id = mid; }
-    else if (kind === 'armour') addArmourFromCatalogue(id);
+    const quiet = { quiet: true };
+    let got;
+    if (kind === 'weapon') got = addWeaponFromCatalogue(id, quiet);
+    else if (kind === 'magic') { const [mid, vi] = String(id).split('~'); got = addMagicFromCatalogue(mid, vi === undefined ? null : vi, quiet); id = mid; }
+    else if (kind === 'armour') got = addArmourFromCatalogue(id, quiet);
     const inv = currentCharacter.inventory;
-    let idx = inv.length > before ? inv.length - 1 : -1;
+    let idx = typeof got === 'number' && got >= 0 && inv[got] ? got : (inv.length > before ? inv.length - 1 : -1);
     if (idx < 0) idx = inv.map(i => i.catalogId).lastIndexOf(kind === 'weapon' ? 'weapon_' + id : id);
     if (idx < 0) return;
     activeSelectingSlot = slot;
@@ -204,7 +215,7 @@ function abilityEffectsFor(character, key) {
     const push = (item, how) => itemAbilityMods(item).filter(m => m.ability === key).forEach(m => out.push({ ...m, name: item.name || 'Item', how }));
     const pd = character?.paperdoll || {};
     PAPERDOLL_SLOTS.forEach(slot => { if (pd[slot]) push(pd[slot], 'worn'); });
-    (character?.inventory || []).forEach(it => { if (it && it.activeWhileCarried) push(it, 'carried'); });
+    carriedActiveItems(character).forEach(it => push(it, 'carried'));
     return out;
 }
 // "Becomes N" effects take the highest such value; "changes by" effects are then added.
@@ -445,7 +456,8 @@ async function unequipSlot(slotKey) {
 
     // Возврат в инвентарь
     if (!Array.isArray(currentCharacter.inventory)) currentCharacter.inventory = [];
-    currentCharacter.inventory.push({ ...item, location: 'Backpack', qty: 1 });
+    const { id: _id, uid: _uid, ...back } = item;
+    currentCharacter.inventory.push({ ...back, location: 'Backpack', qty: 1 });
     currentCharacter.paperdoll[slotKey] = null;
 
     afterEquipChange();
@@ -462,7 +474,7 @@ function spendItemCharge(slotKey) {
     if (item.charges <= 1) {
         item.charges = 0;
         item.magicBonus = 0;
-        alert(`${item.name} expended its final charge! It permanently becomes an inert non-magical item.`);
+        sheetAlert(`${item.name} used its last charge: it is now an ordinary, non-magical item.`);
     } else {
         item.charges -= 1;
     }
@@ -514,24 +526,24 @@ function syncPaperdollUI() {
             : '';
 
         const cursedBadge = item.isCursed
-            ? `<span style="font-size: 0.65rem; color: var(--danger); font-weight: bold; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); padding: 0 4px; border-radius: 2px; display: inline-flex; align-items: center; gap: 3px;">${getIcon('skull', 13)} CURSED</span>`
+            ? `<span style="font-size: 0.65rem; color: var(--danger); font-weight: bold; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); padding: 0 4px; border-radius: 2px; display: inline-flex; align-items: center; gap: 3px;">${getIcon('skull', 13)} Cursed</span>`
             : '';
 
         const concBadge = item.concentration
-            ? `<span style="font-size: 0.65rem; color: var(--arcane); font-weight: bold; border: 1px solid var(--arcane); padding: 0 4px; border-radius: 2px; display: inline-flex; align-items: center; gap: 3px;" title="Cannot move or cast spells while activating">${getIcon('brain', 13)} Concentration</span>`
+            ? `<span style="font-size: 0.65rem; color: var(--arcane); font-weight: bold; border: 1px solid var(--arcane); padding: 0 4px; border-radius: 2px; display: inline-flex; align-items: center; gap: 3px;" title="Requires concentration: cannot move or cast spells while using it">${getIcon('brain', 13)} Requires concentration</span>`
             : '';
 
         const chargeBlock = item.charges !== undefined && item.charges !== null
             ? `<div style="display: flex; align-items: center; gap: 4px;">
                  <span style="font-size: 0.75rem; color: var(--accent-gold); font-weight: bold; display: inline-flex; align-items: center; gap: 3px;">${getIcon('zap', 13)} ${item.charges} charges</span>
-                 <button type="button" onclick="spendItemCharge('${slot}')" style="background: color-mix(in srgb, var(--accent-gold) 15%, transparent); border: 1px solid var(--accent-gold); color: var(--accent-gold); border-radius: 2px; padding: 1px 6px; font-size: 0.65rem; cursor: pointer;">-1 Use</button>
+                 <button type="button" class="btn btn-sm" onclick="spendItemCharge('${slot}')" title="Spend one charge of ${escapeHtml(item.name)}" ${Number(item.charges) <= 0 ? 'disabled' : ''}>Use charge</button>
                </div>`
             : '';
 
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
-                    <span style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase;">[${slot}]</span>
+                    <span style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;">[${escapeHtml(SLOT_LABELS[slot] || slot)}]</span>
                     <strong style="color: var(--accent-gold); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.name)}</strong>
                     ${bonusBadge}
                     ${cursedBadge}
@@ -543,7 +555,13 @@ function syncPaperdollUI() {
                 </div>
                 ${chargeBlock}
             </div>
-            ${item.desc ? `<div style="font-size: 0.72rem; color: var(--text-main); line-height: 1.35; border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding-top: 4px;">${escapeHtml(item.desc)}</div>` : ''}
+            ${item.desc ? (() => {
+                // Long rules text is folded to a few lines with a "more" button (no scroll box inside a scroll box).
+                const long = String(item.desc).length > 260;
+                const open = pdOpenEffects.has(slot);
+                return `<div id="pd-eff-${slot}" class="pd-effect-desc${long && !open ? ' clamped' : ''}">${escapeHtml(item.desc)}</div>`
+                    + (long ? `<button type="button" class="pd-more-btn" onclick="togglePdEffectText('${slot}')" aria-expanded="${open}" aria-controls="pd-eff-${slot}">${open ? 'Less' : 'More'}</button>` : '');
+            })() : ''}
         `;
         list.appendChild(row);
     });
@@ -582,12 +600,12 @@ function syncPaperdollUI() {
         if (!restriction.allowed && slotKey === 'armor' && !item && cls !== 'Mystic') {
             // No ordinary armour for this class, but suits any class may wear still fit.
             el.classList.add('limited');
-            if (contentEl) contentEl.innerText = 'Suits only';
+            if (contentEl) { contentEl.innerText = 'Suits only'; contentEl.removeAttribute('title'); }
             el.title = `${restriction.reason} Suits any class may wear (Blackmoor battle armour, pressure suits) can still go here: click to choose one.`;
             el.style.borderColor = '';
         } else if (!restriction.allowed) {
             el.classList.add('restricted');
-            if (contentEl) contentEl.innerText = 'Prohibited';
+            if (contentEl) { contentEl.innerText = 'Prohibited'; contentEl.removeAttribute('title'); }
             el.title = restriction.reason;
             el.style.borderColor = '';
         } else if (item) {
@@ -604,13 +622,13 @@ function syncPaperdollUI() {
             if (item.isCursed) displayTitle = 'Cursed: ' + displayTitle;
             if (item.charges !== undefined && item.charges !== null) displayTitle += ` (${item.charges} charges)`;
 
-            if (contentEl) contentEl.innerHTML = skullHtml + nameHtml + chargesHtml;
-            el.title = `${displayTitle} (Click to unequip)`;
+            if (contentEl) { contentEl.innerHTML = skullHtml + nameHtml + chargesHtml; contentEl.title = displayTitle; }
+            el.title = `${displayTitle}: click for details, swap or unequip`;
             if (item.isCursed) el.style.borderColor = 'var(--danger)';
             else el.style.borderColor = (Number(item.magicBonus) > 0) ? 'var(--info)' : 'var(--accent-gold)';
         } else {
-            if (contentEl) contentEl.innerText = 'Empty';
-            el.title = 'Empty slot. Click to equip.';
+            if (contentEl) { contentEl.innerText = 'Empty'; contentEl.removeAttribute('title'); }
+            el.title = `Empty ${SLOT_LABELS[slotKey] || slotKey} slot: click to equip something`;
             el.style.borderColor = '';
         }
     });
@@ -631,15 +649,15 @@ function handleSlotClick(slotKey) {
     if (!restriction.allowed) {
         // A suit any class may wear can still go on (or come off) the armour slot.
         const worn = currentCharacter.paperdoll && currentCharacter.paperdoll[slotKey];
-        if (slotKey === 'armor' && worn && anyClassArmourOk(worn, currentCharacter)) { unequipSlot(slotKey); return; }
+        if (slotKey === 'armor' && worn && anyClassArmourOk(worn, currentCharacter)) { openSlotMenu(slotKey); return; }
         if (slotKey === 'armor' && (currentCharacter.characterClass || '') !== 'Mystic') { openPaperdollModal(slotKey, { anyClassOnly: true }); return; }
         sheetAlert(restriction.reason);
         return;
     }
 
-    // Если слот уже занят — снимаем предмет
+    // A filled slot opens a small menu (Details, Swap…, Unequip) instead of unequipping at once.
     if (currentCharacter.paperdoll && currentCharacter.paperdoll[slotKey]) {
-        unequipSlot(slotKey);
+        openSlotMenu(slotKey);
         return;
     }
 
@@ -647,8 +665,13 @@ function handleSlotClick(slotKey) {
 
 }
 
+let pdShowAllItems = false;          // "Show all items" in the equip window (off: only items that fit)
+let pdModalOpts = {};
 function openPaperdollModal(slotKey, opts = {}) {
     activeSelectingSlot = slotKey;
+    pdModalOpts = opts || {};
+    pdShowAllItems = false;
+    closeSlotMenu();
     const modal = document.getElementById('paperdoll-modal');
     const titleEl = document.getElementById('paperdoll-modal-title');
     const warnEl = document.getElementById('paperdoll-modal-warning');
@@ -660,7 +683,7 @@ function openPaperdollModal(slotKey, opts = {}) {
     if (!modal || !container) return;
 
     if (warnEl) warnEl.style.display = 'none';
-    if (titleEl) titleEl.innerText = `Equip Slot: ${slotKey.toUpperCase()}`;
+    if (titleEl) titleEl.innerText = `Equip: ${SLOT_LABELS[slotKey] || slotKey}`;
     if (baseSelect) { baseSelect.style.display = (slotKey === 'armor') ? 'block' : 'none'; baseSelect.value = '7'; }
     const isMystic = (currentCharacter.characterClass || currentCharacter.class) === 'Mystic';
     if (shieldGroup) shieldGroup.style.display = (slotKey === 'offHand' && !isMystic) ? 'flex' : 'none';
@@ -668,7 +691,7 @@ function openPaperdollModal(slotKey, opts = {}) {
 
     // Сброс полей
     safeSetVal('custom-slot-name', '');
-    safeSetVal('custom-slot-weight', 10);
+    safeSetVal('custom-slot-weight', 0);
     safeSetVal('custom-slot-magic', '0');
     safeSetVal('custom-slot-charges', '');
     safeSetVal('custom-slot-desc', '');
@@ -676,9 +699,20 @@ function openPaperdollModal(slotKey, opts = {}) {
     if (cursedBox) cursedBox.checked = false;
     const concBox = document.getElementById('custom-slot-concentration');
     if (concBox) concBox.checked = false;
+    const customBox = document.getElementById('pd-custom');
+    if (customBox) customBox.open = false;
 
     container.innerHTML = '';
     const cls = currentCharacter.characterClass || currentCharacter.class || 'Fighter';
+
+    // Swapping: say what is worn now and where it goes.
+    const worn = currentCharacter.paperdoll && currentCharacter.paperdoll[slotKey];
+    if (worn) {
+        const note = document.createElement('div');
+        note.className = 'ledger-note pd-worn-note';
+        note.textContent = `Now worn: ${worn.name}. Whatever you choose replaces it, and ${worn.name} goes back to the backpack.`;
+        container.appendChild(note);
+    }
 
     if (opts.anyClassOnly) {
         const note = document.createElement('div');
@@ -690,17 +724,17 @@ function openPaperdollModal(slotKey, opts = {}) {
             const isAllowed = isArmourAllowed(currentCharacter, arm.baseAC);
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.style.cssText = `background: var(--inset); border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; cursor: ${isAllowed ? 'pointer' : 'not-allowed'}; opacity: ${isAllowed ? '1' : '0.5'};`;
+            btn.className = 'pd-opt';
+            btn.style.cssText = `cursor: ${isAllowed ? 'pointer' : 'not-allowed'}; opacity: ${isAllowed ? '1' : '0.5'};`;
             btn.innerHTML = `
                 <div style="display: flex; justify-content: space-between;">
                     <strong style="color: var(--accent-gold);">${arm.name} (AC ${arm.baseAC})</strong>
                     <span style="font-size: 0.75rem; color: var(--text-muted);">${arm.weight} cn</span>
                 </div>
-                <div style="font-size: 0.7rem; color: var(--text-muted);">${arm.desc}</div>
+                <div style="font-size: 0.7rem; color: var(--text-muted);">${isAllowed ? arm.desc : `Not usable by ${escapeHtml(cls)}. ${arm.desc}`}</div>
             `;
-            if (isAllowed) {
-                btn.onclick = () => equipStandardArmor(arm);
-            }
+            if (isAllowed) btn.onclick = () => equipStandardArmor(arm);
+            else btn.disabled = true;
             container.appendChild(btn);
         });
     } else if (slotKey === 'offHand') {
@@ -709,7 +743,7 @@ function openPaperdollModal(slotKey, opts = {}) {
         if (shield && isAllowed) {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.style.cssText = 'background: var(--inset); border: 1px solid var(--border-color); padding: 8px; border-radius: 2px; text-align: left; cursor: pointer;';
+            btn.className = 'pd-opt';
             btn.innerHTML = `
                 <div style="display: flex; justify-content: space-between;">
                     <strong style="color: var(--accent-gold);">Shield (-1 AC bonus)</strong>
@@ -722,6 +756,17 @@ function openPaperdollModal(slotKey, opts = {}) {
         }
     }
 
+    // Your own items first (those that fit; "Show all items" lists the rest too).
+    const hasInv = (currentCharacter.inventory || []).some(it => !(it.isValuable || it.valueGP > 0));
+    if (hasInv) {
+        const sec = document.createElement('div');
+        sec.innerHTML = `
+            <div class="pd-section-head"><span class="pd-section-title">From your inventory</span>
+                <label class="pd-show-all"><input type="checkbox" id="pd-show-all" onchange="setPdShowAll(this.checked)"> Show all items</label></div>
+            <div id="pd-inv-list" class="pd-inv-list"></div>`;
+        container.appendChild(sec);
+    }
+
     // From the catalogue (searchable).
     const catChoices = catalogueChoicesForSlot(slotKey).filter(c => !opts.anyClassOnly || c.anyClass);
     paperdollModalAnyClassOnly = Boolean(opts.anyClassOnly);
@@ -729,7 +774,7 @@ function openPaperdollModal(slotKey, opts = {}) {
         const sec = document.createElement('div');
         sec.innerHTML = `
             <div class="pd-section-title">From the catalogue</div>
-            <input type="search" id="paperdoll-catalogue-search" class="stat-input arc-input" placeholder="Search ${catChoices.length} items" oninput="renderSlotCatalogue()" style="margin: 4px 0;">
+            <input type="search" id="paperdoll-catalogue-search" class="stat-input arc-input" placeholder="Search ${catChoices.length} items" aria-label="Search the catalogue" oninput="renderSlotCatalogue()" style="margin: 4px 0;">
             <div id="paperdoll-catalogue-list" class="pd-cat-list"></div>`;
         container.appendChild(sec);
     } else if (slotKey === 'armor' || slotKey === 'offHand') {
@@ -738,42 +783,165 @@ function openPaperdollModal(slotKey, opts = {}) {
         container.appendChild(sec);
     }
 
-    const invItems = currentCharacter.inventory || [];
-    if (invItems.length > 0) {
-        const divider = document.createElement('div');
-        divider.style.cssText = 'font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-headings); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 6px;';
-        divider.innerText = 'From your inventory:';
-        container.appendChild(divider);
-
-        const order = invItems.map((it, idx) => ({ it, idx, fits: itemFitsSlot(it, slotKey) }))
-            .filter(o => !(o.it.isValuable || o.it.valueGP > 0))
-            .filter(o => !opts.anyClassOnly || anyClassArmourOk(o.it, currentCharacter))
-            .sort((a, b) => Number(b.fits) - Number(a.fits));
-        order.forEach(({ it, idx, fits }) => {
-            const barred = itemRestriction(it, slotKey, currentCharacter);
-            if (barred) fits = false;
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.style.cssText = 'background: color-mix(in srgb, var(--text-main) 3%, transparent); border: 1px solid var(--border-color); padding: 6px 8px; border-radius: 2px; text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center;';
-            btn.innerHTML = `
-                <span style="color: ${fits ? 'var(--accent-gold)' : 'var(--text-main)'}; font-size: 0.8rem;">${escapeHtml(it.name)}${fits ? ' <span class="tag">fits</span>' : ''}${barred ? ' <span class="tag" style="color: var(--danger);">not for mystics</span>' : ''}</span>
-                <span style="font-size: 0.7rem; color: var(--text-muted);">${it.weight || 0} cn</span>
-            `;
-            if (barred) { btn.disabled = true; btn.title = barred; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; }
-            else btn.onclick = () => equipFromInventory(idx);
-            container.appendChild(btn);
-        });
-    }
-
     modal.style.display = 'flex';
+    const card = modal.querySelector('.card');
+    if (card) card.scrollTop = 0;
+    const form = pdCustomForm();             // only the custom-item fields count as typing (not search or filters)
+    if (form) { watchFormEdits(form); resetFormEdits(form); }
+    renderSlotInventory();
     if (catChoices.length) renderSlotCatalogue();
 }
+
+// The inventory part of the equip window.
+function renderSlotInventory() {
+    const list = document.getElementById('pd-inv-list');
+    const slotKey = activeSelectingSlot;
+    if (!list || !slotKey || !currentCharacter) return;
+    const invItems = currentCharacter.inventory || [];
+    const opts = pdModalOpts || {};
+    const order = invItems.map((it, idx) => ({ it, idx, fits: itemFitsSlot(it, slotKey) }))
+        .filter(o => !(o.it.isValuable || o.it.valueGP > 0))
+        .filter(o => !opts.anyClassOnly || anyClassArmourOk(o.it, currentCharacter))
+        .filter(o => pdShowAllItems || o.fits)
+        .sort((a, b) => Number(b.fits) - Number(a.fits));
+    list.innerHTML = '';
+    if (!order.length) {
+        list.innerHTML = `<div class="ledger-note">Nothing you own fits the ${escapeHtml(SLOT_LABELS[slotKey] || slotKey)} slot. Tick “Show all items” to choose something else.</div>`;
+        return;
+    }
+    order.forEach(({ it, idx, fits }) => {
+        const barred = itemRestriction(it, slotKey, currentCharacter);
+        if (barred) fits = false;
+        const where = typeof inventoryLocationName === 'function' ? inventoryLocationName(it) : (it.location || 'Backpack');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pd-opt pd-inv-opt';
+        btn.innerHTML = `
+            <span style="color: ${fits ? 'var(--accent-gold)' : 'var(--text-main)'}; font-size: 0.85rem;">${escapeHtml(it.name)}${barred ? ' <span class="tag" style="color: var(--danger);">Not for mystics</span>' : ''}</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap;">${escapeHtml(where)} · ${it.weight || 0} cn</span>
+        `;
+        if (barred) { btn.disabled = true; btn.title = barred; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; }
+        else btn.onclick = () => equipFromInventory(idx);
+        list.appendChild(btn);
+    });
+}
+function setPdShowAll(on) { pdShowAllItems = Boolean(on); renderSlotInventory(); }
+
+// ---------------------------------------------------------------------------
+// The small menu on a filled slot: Details, Swap…, Unequip.
+let pdMenuJustClosed = null;
+function closeSlotMenu() {
+    const m = document.getElementById('pd-slot-menu');
+    if (m) m.remove();
+}
+function openSlotMenu(slotKey) {
+    const item = currentCharacter && currentCharacter.paperdoll && currentCharacter.paperdoll[slotKey];
+    const slotEl = document.getElementById(`slot-${slotKey}`);
+    if (!item || !slotEl) return;
+    if (pdMenuJustClosed && pdMenuJustClosed.slot === slotKey && Date.now() - pdMenuJustClosed.t < 400) { pdMenuJustClosed = null; return; }   // second click on the same slot closes it
+    closeSlotMenu();
+    const m = document.createElement('div');
+    m.id = 'pd-slot-menu';
+    m.className = 'pd-slot-menu';
+    m.dataset.slot = slotKey;
+    m.setAttribute('role', 'menu');
+    m.setAttribute('aria-label', `${item.name} (${SLOT_LABELS[slotKey] || slotKey})`);
+    m.innerHTML = `
+        <div class="pd-menu-title" title="${escapeHtml(item.name)}">${item.isCursed ? getIcon('skull', 12) + ' ' : ''}${escapeHtml(item.name)}</div>
+        <button type="button" role="menuitem" class="btn btn-sm" onclick="pdMenuDetails('${slotKey}')">Details</button>
+        <button type="button" role="menuitem" class="btn btn-sm" onclick="pdMenuSwap('${slotKey}')">Swap…</button>
+        <button type="button" role="menuitem" class="btn btn-sm btn-danger" onclick="pdMenuUnequip('${slotKey}')">Unequip</button>`;
+    document.body.appendChild(m);
+    const r = slotEl.getBoundingClientRect();
+    const w = m.offsetWidth, h = m.offsetHeight;
+    let left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    let top = r.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+    m.style.left = `${left}px`;
+    m.style.top = `${top}px`;
+    m.querySelector('button')?.focus();
+}
+function pdItemDetailsText(item, slotKey) {
+    const lines = [`${item.name} (${SLOT_LABELS[slotKey] || slotKey})`];
+    const facts = [];
+    if (Number(item.magicBonus)) facts.push(`${Number(item.magicBonus) > 0 ? '+' : ''}${Number(item.magicBonus)} magic`);
+    if (item.isArmor || slotKey === 'armor') facts.push(`AC ${item.baseAC !== undefined ? Number(item.baseAC) : 7}${Number(item.magicBonus) ? ` (${(item.baseAC !== undefined ? Number(item.baseAC) : 7) - Number(item.magicBonus)} with magic)` : ''}`);
+    if (item.isShield) facts.push('Shield: AC -1');
+    if (item.acBonus && !item.isShield) facts.push(`AC -${Number(item.acBonus)}`);
+    if (item.saveBonus) facts.push(`Saves +${Number(item.saveBonus)}`);
+    if (item.charges !== undefined && item.charges !== null && item.charges !== '') facts.push(`${item.charges} charges`);
+    if (item.isCursed) facts.push('Cursed');
+    if (item.concentration) facts.push('Requires concentration');
+    if (Number(item.weight)) facts.push(`${Number(item.weight)} cn`);
+    if (facts.length) lines.push(facts.join(' · '));
+    if (item.desc) lines.push('', item.desc);
+    return lines.join('\n');
+}
+function pdMenuDetails(slotKey) {
+    const item = currentCharacter?.paperdoll?.[slotKey];
+    closeSlotMenu();
+    if (item) sheetAlert(pdItemDetailsText(item, slotKey));
+}
+async function pdMenuSwap(slotKey) {
+    const item = currentCharacter?.paperdoll?.[slotKey];
+    closeSlotMenu();
+    if (!item) return;
+    // A cursed item must come off first (remove curse), then the slot is free to fill.
+    if (item.isCursed) {
+        await unequipSlot(slotKey);
+        if (currentCharacter.paperdoll[slotKey]) return;
+    }
+    const restricted = !checkSlotRestriction(slotKey, currentCharacter).allowed;
+    openPaperdollModal(slotKey, restricted && slotKey === 'armor' ? { anyClassOnly: true } : {});
+}
+function pdMenuUnequip(slotKey) { closeSlotMenu(); unequipSlot(slotKey); }
+// A click anywhere else closes the menu.
+document.addEventListener('pointerdown', e => {
+    const m = document.getElementById('pd-slot-menu');
+    if (!m || m.contains(e.target)) return;
+    const slotEl = document.getElementById(`slot-${m.dataset.slot}`);
+    if (slotEl && slotEl.contains(e.target)) pdMenuJustClosed = { slot: m.dataset.slot, t: Date.now() };
+    closeSlotMenu();
+}, true);
+window.addEventListener('resize', closeSlotMenu);
+document.addEventListener('scroll', closeSlotMenu, true);
+
+// The worn item goes back to the backpack when something else is put in its slot.
+function pdStowCurrent(slotKey) {
+    const pd = currentCharacter && currentCharacter.paperdoll;
+    const cur = pd && pd[slotKey];
+    if (!cur) return;
+    if (!Array.isArray(currentCharacter.inventory)) currentCharacter.inventory = [];
+    const { id: _id, uid: _uid, ...back } = cur;
+    currentCharacter.inventory.push({ ...back, location: 'Backpack', qty: 1 });
+    pd[slotKey] = null;
+}
+
+// Longer effect text folds open and shut.
+const pdOpenEffects = new Set();
+function togglePdEffectText(slot) {
+    const el = document.getElementById(`pd-eff-${slot}`);
+    if (!el) return;
+    const open = el.classList.contains('clamped');
+    el.classList.toggle('clamped', !open);
+    if (open) pdOpenEffects.add(slot); else pdOpenEffects.delete(slot);
+    const btn = el.nextElementSibling;
+    if (btn && btn.classList.contains('pd-more-btn')) { btn.textContent = open ? 'Less' : 'More'; btn.setAttribute('aria-expanded', String(open)); }
+}
+Object.assign(window, { setPdShowAll, openSlotMenu, closeSlotMenu, pdMenuDetails, pdMenuSwap, pdMenuUnequip, togglePdEffectText, renderSlotInventory });
 
 function equipFromInventory(invIndex) {
     if (!currentCharacter || !activeSelectingSlot) return;
     const item = currentCharacter.inventory[invIndex];
     if (!item) return;
-    const block = itemRestriction(item, activeSelectingSlot, currentCharacter);
+    let block = itemRestriction(item, activeSelectingSlot, currentCharacter);
+    const slotNow = activeSelectingSlot;
+    if (!block && slotNow === 'armor' && !item.isArmor && item.baseAC === undefined) block = `${item.name} is not armour.`;
+    if (!block && slotNow !== 'armor' && item.isArmor) block = `${item.name} is armour: put it in the armour slot.`;
+    if (!block && item.isShield && slotNow !== 'offHand') block = `${item.name} is a shield: it goes in the off hand.`;
+    if (!block && slotNow === 'armor' && !anyClassArmourOk(item, currentCharacter) && !isArmourAllowed(currentCharacter, item.baseAC !== undefined ? Number(item.baseAC) : 7))
+        block = `${currentCharacter.characterClass} cannot wear that armour (${ClassesDatabase[currentCharacter.characterClass]?.allowedArmor || 'restricted'}).`;
+    if (!block && slotNow === 'offHand' && item.isShield && !checkSlotRestriction('offHand', currentCharacter).allowed) block = checkSlotRestriction('offHand', currentCharacter).reason;
     if (block) {
         const warn = document.getElementById('paperdoll-modal-warning');
         if (warn) { warn.textContent = block; warn.style.display = 'block'; } else sheetAlert(block);
@@ -785,8 +953,9 @@ function equipFromInventory(invIndex) {
     } else {
         currentCharacter.inventory.splice(invIndex, 1);
     }
+    pdStowCurrent(activeSelectingSlot);
 
-    const { qty: _qty, location: _loc, ...rest } = item;
+    const { qty: _qty, location: _loc, id: _id, uid: _uid, forTrade: _ft, ...rest } = item;
     currentCharacter.paperdoll[activeSelectingSlot] = {
         ...rest,
         name: item.name,
@@ -813,17 +982,29 @@ function equipFromInventory(invIndex) {
 function closePaperdollModal() {
     const modal = document.getElementById('paperdoll-modal');
     if (modal) modal.style.display = 'none';
+    resetFormEdits(pdCustomForm());
     activeSelectingSlot = null;
+}
+function pdCustomForm() { return document.getElementById('pd-custom') || document.querySelector('#paperdoll-modal .card'); }
+// Esc or a click outside: the custom-item form asks before throwing away what was typed.
+async function pdCloseModalAsk() {
+    if (!(await okToDiscard(pdCustomForm()))) return;
+    closePaperdollModal();
 }
 
 function handlePaperdollModalBackdrop(event) {
-    if (event.target && event.target.id === 'paperdoll-modal') closePaperdollModal();
+    if (event.target && event.target.id === 'paperdoll-modal') pdCloseModalAsk();
+}
+if (typeof registerModalCloser === 'function') {
+    registerModalCloser('paperdoll-modal', pdCloseModalAsk);
+    registerModalCloser('pd-slot-menu', closeSlotMenu);
 }
 
 function equipStandardArmor(armorData) {
     if (!currentCharacter) return;
     const cls = currentCharacter.characterClass || currentCharacter.class || 'Fighter';
     const raceSize = cls === 'Halfling' ? 'Halfling' : 'Human';
+    pdStowCurrent('armor');
     currentCharacter.paperdoll.armor = {
         name: armorData.name,
         baseAC: armorData.baseAC,
@@ -841,6 +1022,7 @@ function equipStandardArmor(armorData) {
 
 function equipShieldItem(shieldData) {
     if (!currentCharacter) return;
+    pdStowCurrent('offHand');
     currentCharacter.paperdoll.offHand = {
         name: shieldData.name,
         acBonus: 1,
@@ -884,6 +1066,7 @@ function equipCustomItem() {
         return;
     }
 
+    pdStowCurrent(activeSelectingSlot);
     currentCharacter.paperdoll[activeSelectingSlot] = {
         name,
         weight,

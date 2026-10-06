@@ -498,7 +498,7 @@ function openSkyshipDesigner(id = null) {
     wrap.innerHTML = `<div class="card notes-form-card sky-card">
         <div class="arc-row-head" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
             <h2 style="border: none; padding: 0; margin: 0; font-size: 1.1rem;">Skyship designer</h2>
-            <button type="button" class="icon-btn" onclick="closeSkyshipDesigner()" aria-label="Close">${getIcon('close', 14)}</button>
+            <button type="button" class="icon-btn" onclick="requestCloseSkyshipDesigner()" aria-label="Close">${getIcon('close', 14)}</button>
         </div>
         <div class="sky-grid">
             <div id="sky-form"></div>
@@ -507,17 +507,26 @@ function openSkyshipDesigner(id = null) {
         <div class="notes-form-actions">
             <span class="sub-caption" style="margin: 0;">${escapeHtml(COM)}, pp. 4-16 and 62</span>
             <span style="flex: 1;"></span>
-            <button type="button" class="btn btn-sm" onclick="closeSkyshipDesigner()">Cancel</button>
+            <button type="button" class="btn btn-sm" onclick="requestCloseSkyshipDesigner()">Cancel</button>
             <button type="button" class="btn btn-sm" onclick="saveSkyshipDesign('design')">Save the design</button>
             <button type="button" class="btn btn-sm btn-primary" onclick="saveSkyshipDesign('building')">Start building</button>
         </div>
     </div>`;
-    wrap.addEventListener('click', e => { if (e.target === wrap) closeSkyshipDesigner(); });
+    wrap.addEventListener('click', e => { if (e.target === wrap) requestCloseSkyshipDesigner(); });
     document.body.appendChild(wrap);
+    watchFormEdits(wrap);
     renderSkyForm();
     renderSkyResult();
 }
 function closeSkyshipDesigner() { document.getElementById('skyship-designer')?.remove(); skyDesign = null; }
+// ✕, Cancel, Esc and a click outside: ask first if anything was changed.
+async function requestCloseSkyshipDesigner() {
+    const w = document.getElementById('skyship-designer');
+    if (!w) return;
+    if (!(await okToDiscard(w))) return;
+    closeSkyshipDesigner();
+}
+registerModalCloser('skyship-designer', requestCloseSkyshipDesigner);
 
 function skyField(key, label, type = 'number', opts = {}) {
     const d = skyDesign;
@@ -526,7 +535,7 @@ function skyField(key, label, type = 'number', opts = {}) {
     if (type === 'select') input = `<select class="stat-input arc-input" data-k="${key}">${opts.options.map(([v, l]) => `<option value="${escapeHtml(String(v))}" ${String(v) === String(val) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`;
     else if (type === 'check') input = `<label class="arc-check"><input type="checkbox" data-k="${key}" ${val ? 'checked' : ''}> ${escapeHtml(opts.text || '')}</label>`;
     else input = `<input type="${type}" class="stat-input arc-input" data-k="${key}" value="${escapeHtml(String(val))}" ${opts.min !== undefined ? `min="${opts.min}"` : ''} ${opts.step ? `step="${opts.step}"` : ''} placeholder="${escapeHtml(opts.placeholder || '')}">`;
-    return `<label class="arc-field ${opts.narrow ? 'arc-narrow' : ''}" ${opts.hide ? 'style="display:none"' : ''}><span class="eyebrow">${escapeHtml(label)}</span>${input}</label>`;
+    return `<label class="arc-field ${opts.narrow ? 'arc-narrow' : ''} ${opts.wide ? 'sky-wide' : ''}" ${opts.hide ? 'style="display:none"' : ''}><span class="eyebrow">${escapeHtml(label)}</span>${input}</label>`;
 }
 function renderSkyForm() {
     const el = document.getElementById('sky-form'); if (!el || !skyDesign) return;
@@ -547,7 +556,7 @@ function renderSkyForm() {
             ${skyField('thickness', 'Thickness ×', 'number', { min: 0.25, step: 0.25, narrow: true })}
         </div>
         <div class="arc-fields">
-            ${skyField('hull', 'Hull (form spell)', 'select', { options: Object.entries(VESSEL_FORMS).map(([k, f]) => [k, `${f.name}: AC ${f.ac}, ${f.hp} HP, ${f.area} sq ft`]) })}
+            ${skyField('hull', 'Hull (form spell)', 'select', { wide: true, options: Object.entries(VESSEL_FORMS).map(([k, f]) => [k, `${f.name}: AC ${f.ac}, ${f.hp} HP per ${f.area.toLocaleString('en-US')} sq ft`]) })}
             ${skyField('plating', 'Armour plating', 'select', { options: [['', 'None'], ...Object.entries(VESSEL_FORMS).map(([k, f]) => [k, `${f.name} over the hull`])] })}
         </div>
         <div class="eyebrow eyebrow-strong sky-head">Special effects on each form spell (p. 10, at most 5; each doubles the sections)</div>
@@ -740,6 +749,7 @@ function saveSkyshipDesign(mode) {
         design: JSON.parse(JSON.stringify(d)),
     };
     if (v) {
+        if (!c.monster && v.design?.motive !== 'monsters') delete record.upkeep;   // keep upkeep typed on the record sheet
         Object.assign(v, record);
         if (mode === 'building' && v.status !== 'building') { v.status = 'building'; v.build = { sections: c.sections, done: 0, cost: Math.round(c.enchantCost + c.enhanceCost), otherCost: Math.round(c.totalCost - c.enchantCost - c.enhanceCost), spent: 0, perSectionDays: c.days / Math.max(1, c.sections) }; }
         else if (v.build && v.status === 'building') Object.assign(v.build, { sections: c.sections, cost: Math.round(c.enchantCost + c.enhanceCost), otherCost: Math.round(c.totalCost - c.enchantCost - c.enhanceCost), perSectionDays: c.days / Math.max(1, c.sections) });
@@ -754,7 +764,7 @@ function saveSkyshipDesign(mode) {
 }
 
 Object.assign(window, {
-    renderVessels, openVesselEditor, vesselHull, vesselSectionDone, launchVessel, openSkyshipDesigner, closeSkyshipDesigner,
+    renderVessels, openVesselEditor, vesselHull, vesselSectionDone, launchVessel, openSkyshipDesigner, closeSkyshipDesigner, requestCloseSkyshipDesigner,
     saveSkyshipDesign, skySpellSet, skySpellAdd, skySpellRemove, vesselsMonthlyBills, vesselDesignCalc,
     skyFitSet, skyFitAdd, skyFitRemove, vesselPayOther,
 });

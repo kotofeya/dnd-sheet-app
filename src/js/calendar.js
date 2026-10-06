@@ -61,6 +61,11 @@ function calendarState(ch = currentCharacter) {
     if (!c.settings || typeof c.settings !== 'object') c.settings = { heal: true, age: true, shadowElf: false };
     return c;
 }
+// The date was set by hand (not lived through): bills and dominion accounts start again from the new month.
+function rebaseCalendarBills(c) {
+    const m = calParts(c.t).monthAbs;
+    ['wagesMonth', 'holdingsMonth', 'dominionMonth'].forEach(k => { if (c[k] === undefined || Number(c[k]) < m) c[k] = m; });
+}
 function calParts(t) {
     const year = Math.floor(t / CAL.YEAR);
     let rem = t - year * CAL.YEAR;
@@ -146,6 +151,12 @@ function activeStudies() {
 async function advanceTime(secs, opts = {}) {
     const ch = currentCharacter;
     if (!ch || !(secs > 0)) return;
+    // Undo: a deep copy of the whole character as it was before time passed (pending edits written first).
+    let undoSnap = null;
+    if (!opts.quiet && opts.undo !== false) {
+        if (typeof debouncedSave?.flush === 'function') { try { debouncedSave.flush(); } catch (e) { console.error(e); } }
+        try { undoSnap = JSON.stringify(ch); } catch (e) { undoSnap = null; }
+    }
     const c = calendarState();
     const before = calParts(c.t);
     const dueBefore = new Set(calendarDue().map(d => d.text));
@@ -198,6 +209,10 @@ async function advanceTime(secs, opts = {}) {
     if (typeof renderBirthday === 'function') { try { renderBirthday(); } catch (e) { console.error(e); } }
     // Daily uses refill, rations are eaten and lights burn down (js/everyday.js).
     if (typeof everydayTimePassed === 'function') { try { notes.push(...everydayTimePassed(before, after, secs)); } catch (e) { console.error(e); } }
+    // Arcana (research, crafting...) follows the days that passed (js/arcana.js, optional hook).
+    if (typeof window.arcanaTimePassed === 'function') {
+        try { const r = window.arcanaTimePassed(mornings); if (Array.isArray(r)) notes.push(...r.filter(x => typeof x === 'string' && x)); } catch (e) { console.error(e); }
+    }
     // Monthly bills paid by themselves (option): one charge for each month that began.
     const autoPaid = c.settings.autoPay ? autoPayMonthly(after) : [];
     notes.push(...autoPaid);
@@ -212,12 +227,61 @@ async function advanceTime(secs, opts = {}) {
     renderGameClock();
     if (document.getElementById('calendar-modal')) renderCalendarModal();
 
-    // New alerts: timers that ran out, a new month's bills, holidays reached.
+    // New alerts: timers that ran out and bills that could not be paid stop the game (a message box);
+    // holidays, new bills and the rest go in one short message with an Undo button.
     if (opts.quiet) return;
-    const fresh = calendarDue().filter(d => !dueBefore.has(d.text)).map(d => d.text);
-    autoPaid.forEach(t => fresh.push(t.charAt(0).toUpperCase() + t.slice(1)));
-    if (after.dayAbs !== before.dayAbs) holidaysOn(after.month, after.day, after.year).forEach(h => fresh.push(`Today: ${h.name}`));
-    if (fresh.length && typeof sheetAlert === 'function') await sheetAlert(`${calDateText(after)}\n\n${fresh.map(f => '• ' + f).join('\n')}`);
+    let postState = null;
+    if (undoSnap) {
+        if (typeof debouncedSave?.flush === 'function') { try { debouncedSave.flush(); } catch (e) { console.error(e); } }
+        try { postState = JSON.stringify(ch); } catch (e) { postState = null; }
+    }
+    const freshDue = calendarDue().filter(d => !dueBefore.has(d.text));
+    const blocking = freshDue.filter(d => d.timer).map(d => d.text);
+    const light = freshDue.filter(d => !d.timer).map(d => d.text);
+    autoPaid.forEach(t => (/^could not pay/.test(t) ? blocking : light).push(t.charAt(0).toUpperCase() + t.slice(1)));
+    if (after.dayAbs !== before.dayAbs) {
+        // Every holiday on the days lived through (a week can cross several).
+        const seen = new Set();
+        for (let d = before.dayAbs + 1; d <= after.dayAbs && seen.size < 6; d++) {
+            const p = calParts(d * CAL.DAY);
+            holidaysOn(p.month, p.day, p.year).forEach(h => { const n = h.name.split(':')[0].split('(')[0].trim(); if (!seen.has(n)) { seen.add(n); light.push(d === after.dayAbs ? `Today: ${n}` : `${n} (${p.day} ${CAL_MONTHS[p.month]})`); } });
+        }
+    }
+    if (blocking.length && typeof sheetAlert === 'function') await sheetAlert(`${calDateText(after)}\n\n${blocking.map(f => '• ' + f).join('\n')}`);
+    calTimeToast({ label: opts.toastLabel || label, after, notes, light, undoSnap, postState, charRef: ch, file: currentFileName });
+}
+
+// One message after time passes: what happened, with an Undo button for about ten seconds.
+// Only the latest one is kept (an older Undo would also throw away the time passed since).
+let calCloseLastToast = null;
+function calTimeToast({ label, after, notes, light, undoSnap, postState, charRef, file }) {
+    if (typeof sheetToast !== 'function') return;
+    const bits = [`now ${calDateText(after, false)}`, ...light, ...notes.filter(n => !/^paid |^could not pay/.test(n))];
+    const shown = bits.slice(0, 4).join(' · ') + (bits.length > 4 ? ` · and ${bits.length - 4} more (see the log)` : '');
+    const text = `${label} · ${shown}`;
+    if (typeof calCloseLastToast === 'function') { try { calCloseLastToast(); } catch (e) { /* already gone */ } }
+    if (!undoSnap) { calCloseLastToast = sheetToast(text, { ms: 8000 }); return; }
+    calCloseLastToast = sheetToast(text, { action: 'Undo', ms: 10000, onAction: () => calUndoTime({ label, undoSnap, postState, charRef, file }) });
+}
+async function calUndoTime({ label, undoSnap, postState, charRef, file }) {
+    if (!currentCharacter || currentCharacter !== charRef || currentFileName !== file) {
+        await sheetAlert('Another character is on screen now, so the time that passed cannot be undone.');
+        return;
+    }
+    if (typeof debouncedSave?.flush === 'function') { try { debouncedSave.flush(); } catch (e) { console.error(e); } }
+    let now = null;
+    try { now = JSON.stringify(currentCharacter); } catch (e) { now = null; }
+    if (postState && now !== postState) {
+        if (!(await sheetConfirm(`The sheet has changed since “${label}”. Undo anyway? The changes made since then are lost too.`, 'Undo anyway'))) return;
+        if (currentCharacter !== charRef) return;
+    }
+    const keepFile = currentFileName;
+    const data = JSON.parse(undoSnap);
+    loadCharacterToUI(data);
+    currentFileName = keepFile;
+    if (document.getElementById('calendar-modal')) { const p = calParts(calendarState().t); calView = { year: p.year, month: p.month }; renderCalendarModal(); }
+    if (typeof saveChanges === 'function') saveChanges();
+    sheetToast(`Undone: ${label.charAt(0).toLowerCase() + label.slice(1)}.`, { ms: 4000 });
 }
 
 // Wages and household costs for each new month, from the purse. Returns lines for the log.
@@ -268,7 +332,8 @@ async function openPassTime() {
             { key: 'amount', label: 'How much', placeholder: 'e.g. 3' },
             { key: 'unit', label: 'Unit', type: 'select', options: [
                 { value: CAL.DAY, label: 'days' }, { value: CAL.WEEK, label: 'weeks' }, { value: CAL.MONTH, label: 'months (28 days)' }] },
-            { key: 'rest', label: 'Activity', type: 'select', options: [{ value: '', label: 'Active: travel, work, adventure (heal 1 hp a day)' }, { value: '1', label: 'Complete rest (heal 2 hp a day)' }] },
+            { key: 'rest', label: 'Activity', type: 'select', options: [{ value: '', label: 'Active' }, { value: '1', label: 'Complete rest' }],
+                hint: 'Active (travel, work, adventure) heals 1 hp a day; complete rest heals 2.' },
             { key: 'why', label: 'What happened (for the log)', placeholder: 'e.g. Travelled to Specularum', wide: true },
         ],
         values: { amount: '1', unit: CAL.DAY },
@@ -276,7 +341,7 @@ async function openPassTime() {
     });
     // notesFormModal removes its DOM before resolving, so read the study boxes from a snapshot taken on click.
     if (!res) return;
-    const secs = Math.round((Number(res.amount) || 0) * Number(res.unit));
+    const secs = Math.round((Number(res.amount) || 0) * Number(res.unit) / CAL.DAY) * CAL.DAY;   // whole days
     if (!(secs > 0)) return;
     await advanceTime(secs, { rest: res.rest === '1', studies: window.__calStudyPick || [], label: res.why ? `${res.why} (${formatDuration(secs)})` : undefined });
     window.__calStudyPick = [];
@@ -309,6 +374,7 @@ function renderGameClock() {
             ${due.length ? `<span class="gc-due" title="${escapeHtml(due.map(d => d.text).join('\n'))}">${due.length} due</span>` : ''}
         </button>
         <span class="game-clock-btns" role="group" aria-label="Pass time">
+            <button type="button" class="btn btn-sm" onclick="openCalendar()" title="Calendar, timers, events and options">${getIcon('hourglass', 13)} Calendar</button>
             <button type="button" class="btn btn-sm" onclick="quickAdvance('day')">+ Day</button>
             <button type="button" class="btn btn-sm" onclick="quickAdvance('week')">+ Week</button>
             <button type="button" class="btn btn-sm" onclick="quickAdvance('rest')" title="A full day of rest: heals 2 hp; casters may recover spells">Rest a day</button>
@@ -328,19 +394,26 @@ function openCalendar() {
         m = document.createElement('div');
         m.id = 'calendar-modal';
         m.className = 'notes-form-wrap';
+        m.setAttribute('role', 'dialog');
+        m.setAttribute('aria-modal', 'true');
         m.addEventListener('click', e => { if (e.target === m) closeCalendar(); });
         document.body.appendChild(m);
-        document.addEventListener('keydown', calendarKeys, true);
     }
     renderCalendarModal();
 }
-function calendarKeys(e) {
-    if (e.key === 'Escape' && document.getElementById('calendar-modal') && !document.getElementById('sheet-dialog') && !document.getElementById('notes-form-modal')) closeCalendar();
-}
 function closeCalendar() {
     document.getElementById('calendar-modal')?.remove();
-    document.removeEventListener('keydown', calendarKeys, true);
 }
+// Open the calendar at its options (where wages and household costs are paid from).
+function openCalendarSettings() {
+    openCalendar();
+    const box = document.getElementById('cal-options');
+    if (!box) return;
+    box.scrollIntoView({ block: 'center' });
+    box.classList.remove('notes-flash'); void box.offsetWidth; box.classList.add('notes-flash');
+    setTimeout(() => box.classList.remove('notes-flash'), 2000);
+}
+if (typeof registerModalCloser === 'function') registerModalCloser('calendar-modal', closeCalendar);
 function calShiftMonth(delta) {
     let m = calView.month + delta, y = calView.year;
     while (m < 0) { m += 12; y--; } while (m > 11) { m -= 12; y++; }
@@ -400,11 +473,12 @@ function renderCalendarModal() {
                     </div>
                     <p class="sub-caption">Setting the date moves the calendar without healing, wages or log entries; use “Pass time” for time that the characters live through.</p>
                 </div>
-                <div class="cal-list"><span class="eyebrow eyebrow-strong">Options</span>
+                <div class="cal-list" id="cal-options"><span class="eyebrow eyebrow-strong">Options</span>
                     <label class="arc-check"><input type="checkbox" ${c.settings.heal ? 'checked' : ''} onchange="setCalendarSetting('heal', this.checked)"> Heal naturally each day (1 hp, 2 if resting)</label>
                     <label class="arc-check"><input type="checkbox" ${c.settings.age ? 'checked' : ''} onchange="setCalendarSetting('age', this.checked)"> Add a year to the character's age on their birthday (1 Nuwmont if no birthday is set)</label>
-                    <label class="arc-check"><input type="checkbox" ${c.settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay wages and household costs automatically when a new month begins</label>
+                    <div class="cal-bills-opts"><span class="eyebrow">Monthly bills (wages and household costs)</span>
                     ${typeof paySourceSelect === 'function' ? paySourceSelect() : ''}
+                    <label class="arc-check"><input type="checkbox" ${c.settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay them automatically when a new month begins</label></div>
                     <label class="arc-check"><input type="checkbox" ${c.settings.shadowElf ? 'checked' : ''} onchange="setCalendarSetting('shadowElf', this.checked)"> Show the shadow elf date on the calendar bar</label>
                     ${typeof activeParty === 'function' ? '<button type="button" class="btn btn-sm" onclick="shareDateWithParty()" title="Set every party member\'s calendar to this date and time">Share this date with the party</button>' : ''}
                 </div>
@@ -434,9 +508,10 @@ async function calPickDay(d) {
     const target = calView.year * CAL.YEAR + (calView.month * 28 + d - 1) * CAL.DAY;
     if (res.action === 'pass') {
         if (target <= c.t) { await sheetAlert('That day is not in the future. Use “Set the calendar” to go back.'); return; }
-        await advanceTime(target - c.t, { label: `Time passed until ${label}` });
+        await advanceTime(target - c.t, { label: `Time passed until ${label}`, toastLabel: `${formatDuration(target - c.t)} passed` });
     } else if (res.action === 'set') {
         c.t = target;
+        rebaseCalendarBills(c);
         if (typeof debouncedSave === 'function') debouncedSave();
         renderGameClock(); renderCalendarModal();
     } else {
@@ -458,6 +533,7 @@ function setCalendarFromForm() {
     const mo = clampInt(document.getElementById('cal-set-month')?.value, 0, 11, 0);
     const y = clampInt(document.getElementById('cal-set-year')?.value, -5000, 20000, 1000);
     c.t = y * CAL.YEAR + (mo * 28 + d - 1) * CAL.DAY;
+    rebaseCalendarBills(c);
     calView = { year: y, month: mo };
     if (typeof debouncedSave === 'function') debouncedSave();
     if (typeof syncBirthdayAge === 'function') { syncBirthdayAge(); renderBirthday(); }
@@ -467,6 +543,7 @@ function setCalendarSetting(key, value) {
     calendarState().settings[key] = !!value;
     if (typeof debouncedSave === 'function') debouncedSave();
     renderGameClock();
+    if (document.getElementById('calendar-modal')) renderCalendarModal();
     if (key === 'autoPay') {
         if (typeof renderCompanions === 'function') { try { renderCompanions(); } catch (e) { console.error(e); } }
         if (typeof renderHoldings === 'function') { try { renderHoldings(); } catch (e) { console.error(e); } }
@@ -501,6 +578,9 @@ function removeCalendarTimer(id) {
 
 // Copy this character's date and time to the other members of the active party.
 async function shareDateWithParty() {
+    if (typeof partyData !== 'undefined' && !partyData.parties.length && window.api.getParties) {
+        try { const d = await window.api.getParties(); if (d && Array.isArray(d.parties)) partyData = d; } catch (e) { console.error(e); }
+    }
     const party = typeof activeParty === 'function' ? activeParty() : null;
     const members = (party?.members || []).filter(f => typeof f === 'string' && f && f !== currentFileName);
     if (!members.length) { await sheetAlert('No other party members to share the date with. Add them in the Party window first.'); return; }
@@ -513,6 +593,7 @@ async function shareDateWithParty() {
             if (!data) continue;
             if (!data.calendar || typeof data.calendar !== 'object') data.calendar = {};
             data.calendar.t = t;
+            rebaseCalendarBills(data.calendar);
             await window.api.saveCharacter({ data, oldFilename: file });
             done++;
         } catch (e) { console.error(e); }
@@ -523,5 +604,5 @@ async function shareDateWithParty() {
 Object.assign(window, {
     calendarState, calParts, gameDateText, advanceTime, quickAdvance, openPassTime, renderGameClock, openCalendar, closeCalendar,
     calShiftMonth, calPickDay, removeCalendarEvent, setCalendarFromForm, setCalendarSetting, addCalendarTimer, removeCalendarTimer,
-    shareDateWithParty, calendarDue, formatDuration,
+    shareDateWithParty, calendarDue, formatDuration, openCalendarSettings,
 });

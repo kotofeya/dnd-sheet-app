@@ -14,10 +14,41 @@ const COMPANION_KINDS = {
 const COMPANION_STATUS = [
     { id: 'with',      label: 'With the party' },
     { id: 'home',      label: 'At home / on duty' },
-    { id: 'away',      label: 'Away on an errand' },
+    { id: 'away',      label: 'Elsewhere (on an errand)' },
     { id: 'dismissed', label: 'Dismissed' },
     { id: 'dead',      label: 'Dead' },
 ];
+// The companion form has one "Where" choice for status and home together. Saved companions keep
+// status ('with', 'home', 'away', 'dismissed', 'dead') and home (a holding id) as before.
+function companionHomes() {
+    return Array.isArray(currentCharacter?.holdings) ? currentCharacter.holdings.filter(h => h && h.id && h.status !== 'lost') : [];
+}
+function companionWhereValue(c) {
+    const status = COMPANION_STATUS.some(s => s.id === c.status) ? c.status : 'with';
+    const home = c.home && companionHomes().find(h => h.id === c.home);
+    if (home && (status === 'home' || status === 'with')) return `home:${home.id}`;
+    return status;
+}
+function companionWhereOptions(c) {
+    const homes = companionHomes();
+    const opts = [{ value: 'with', label: 'With the party' }];
+    homes.forEach(h => opts.push({ value: `home:${h.id}`, label: `At ${h.name || 'home'}` }));
+    // The plain "at home / on duty" stays for companions without a home on the sheet.
+    if (!homes.length || !c || c.status === 'home') opts.push({ value: 'home', label: 'At home / on duty' });
+    opts.push({ value: 'away', label: 'Elsewhere (on an errand)' }, { value: 'dismissed', label: 'Dismissed' }, { value: 'dead', label: 'Dead' });
+    return opts;
+}
+function companionWhereApply(out) {
+    const v = String(out.status || 'with');
+    if (v.startsWith('home:')) { out.status = 'home'; out.home = v.slice(5); }
+    else { out.status = COMPANION_STATUS.some(s => s.id === v) ? v : 'with'; out.home = ''; }
+    return out;
+}
+function companionWhereLabel(c) {
+    const home = c.home && companionHomes().find(h => h.id === c.home);
+    if (home && (c.status === 'home' || c.status === 'with' || !c.status)) return `At ${home.name || 'home'}`;
+    return (COMPANION_STATUS.find(s => s.id === c.status) || COMPANION_STATUS[0]).label;
+}
 const PAY_BASIS = [
     { id: 'month',   label: 'per month' },
     { id: 'mission', label: 'per mission' },
@@ -219,7 +250,6 @@ function hpCell(c) {
 }
 
 function companionRow(c) {
-    const status = COMPANION_STATUS.find(s => s.id === c.status) || COMPANION_STATUS[0];
     const gone = !isActiveCompanion(c);
     const lines = [];
     const tags = [];
@@ -239,8 +269,6 @@ function companionRow(c) {
     } else {
         lines.push(c.species || '');
     }
-    const home = c.home && Array.isArray(currentCharacter.holdings) ? currentCharacter.holdings.find(h => h.id === c.home) : null;
-    if (home) tags.push(`At ${home.name}`);
     const stats = [];
     if (c.ac !== undefined && c.ac !== '') stats.push(`AC ${c.ac}`);
     if (c.hd) stats.push(`${familiarHdText(c.hd)} HD`);
@@ -255,7 +283,7 @@ function companionRow(c) {
         <div class="comp-row${gone ? ' gone' : ''}" data-companion-id="${c.id}">
             <div class="comp-main">
                 <div class="comp-name"><button type="button" class="link-btn comp-name-btn" onclick="openCompanionEditor('${c.id}')">${escapeHtml(c.name || 'Unnamed')}</button>
-                    <span class="comp-status comp-status-${c.status || 'with'}">${escapeHtml(status.label)}</span></div>
+                    <span class="comp-status comp-status-${c.status || 'with'}">${escapeHtml(companionWhereLabel(c))}</span></div>
                 <div class="nc-meta">${lines.filter(Boolean).map(escapeHtml).join(' · ')}${stats.length ? ` · ${escapeHtml(stats.join(' · '))}` : ''}</div>
                 ${tags.filter(Boolean).length ? `<div class="comp-tags">${tags.filter(Boolean).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
                 ${c.notes ? `<div class="comp-notes">${escapeHtml(c.notes)}</div>` : ''}
@@ -306,11 +334,7 @@ function renderCompanions() {
             <span>Reaction <strong>${row.reaction > 0 ? '+' : ''}${row.reaction}</strong></span>
             <span>Wages <strong>${compGp(monthly)}</strong> / month</span>
         </div>
-        <div class="arc-actions" style="margin: 8px 0 0;">
-            <button type="button" class="btn btn-sm btn-accent" onclick="payCompanionWages()" ${monthly ? '' : 'disabled'}>Pay a month's wages</button>
-            ${typeof paySourceSelect === 'function' ? paySourceSelect() : ''}
-            ${typeof calendarState === 'function' ? `<label class="arc-check" title="When the calendar reaches a new month, wages and household costs are paid by themselves from the chosen money (for every month that passed)"><input type="checkbox" ${calendarState().settings.autoPay ? 'checked' : ''} onchange="setCalendarSetting('autoPay', this.checked)"> Pay automatically each month</label>` : ''}
-        </div>
+        ${typeof monthlyBillsBar === 'function' ? monthlyBillsBar() : ''}
     </div>`;
 
     root.innerHTML = summary
@@ -332,7 +356,7 @@ function renderCompanions() {
 // Editing
 // ---------------------------------------------------------------------------
 function companionFields(kind, c) {
-    const status = { key: 'status', label: 'Status', type: 'select', options: COMPANION_STATUS.map(s => ({ value: s.id, label: s.label })) };
+    const status = { key: 'status', label: 'Where', type: 'select', options: companionWhereOptions(c) };
     const notes = { key: 'notes', label: 'Notes', type: 'textarea', wide: true, rows: 3, placeholder: 'Personality, equipment, orders, history...' };
     const hp = [{ key: 'hpMax', label: 'Hit points (max)', placeholder: 'e.g. 8' }, { key: 'hp', label: 'Hit points (now)', placeholder: 'same as max' }];
     const classes = ['Commoner', ...Object.keys(window.ClassesDatabase || {})];
@@ -405,22 +429,23 @@ async function openCompanionEditor(id = null, kind = 'retainer') {
     if (id && !c) return;
     kind = c ? c.kind : kind;
     const values = c ? { ...c, wartime: c.wartime ? '1' : '' } : companionDefaults(kind);
+    values.status = companionWhereValue(values);
     const pending = notesFormModal({
         title: c ? (c.name || COMPANION_KINDS[kind].label) : `New ${COMPANION_KINDS[kind].label.toLowerCase()}`,
-        values: { home: '', ...values }, canDelete: !!c, fields: [...companionFields(kind, c), ...(typeof holdingHomeField === 'function' ? holdingHomeField() : [])],
+        values, canDelete: !!c, fields: companionFields(kind, c),
         extraHtml: kind === 'familiar' ? `<span id="familiar-form-marker" hidden></span><p class="sub-caption" id="familiar-stats-note" style="margin-top: 8px;"></p><p class="sub-caption" style="margin-top: 8px;">${escapeHtml(HOMUNCULUS_COMMON)}</p>` : '',
     });
     if (kind === 'familiar') { familiarFormFilled = {}; familiarFormSync(!c); }
     const res = await pending;
     if (res === null) return;
     if (res === '__delete__') {
-        if (!(await sheetConfirm(`Remove ${c.name || 'this companion'} from the sheet? (To keep a record, set the status to Dismissed or Dead instead.)`, 'Remove'))) return;
+        if (!(await sheetConfirm(`Remove ${c.name || 'this companion'} from the sheet? (To keep a record, set Where to Dismissed or Dead instead.)`, 'Remove'))) return;
         currentCharacter.companions = list.filter(x => x.id !== c.id);
         compSave();
         return;
     }
     const num = (v, d = '') => (v === '' || v === undefined) ? d : (Number.isFinite(Number(v)) ? Number(v) : d);
-    const out = { ...(c ? {} : companionDefaults(kind)), ...res, kind };   // keep defaults the form does not show (mercenaries are paid monthly)
+    const out = companionWhereApply({ ...(c ? {} : companionDefaults(kind)), ...res, kind });   // keep defaults the form does not show (mercenaries are paid monthly)
     if (kind === 'mercenary') out.payBasis = 'month';
     ['level', 'hpMax', 'hp', 'morale', 'count', 'xp', ...(kind === 'familiar' ? [] : ['hd'])].forEach(k => { if (k in out) out[k] = num(out[k]); });
     if (kind === 'familiar' && 'hd' in out) { const t = String(out.hd).trim(); out.hd = !t ? '' : /^\d+(\.\d+)?$/.test(t) ? Number(t) : familiarHdText(t); }
@@ -454,7 +479,7 @@ async function openCompanionEditor(id = null, kind = 'retainer') {
         compLog(`${c.name} died. ${saved ? `Saved vs. death ray: ${c.hpTransferred} hp returned.` : `Failed the save vs. death ray: ${c.hpTransferred} hp lost for good; no new familiar until the next level.`}`, { companion: c.id });
         c.hpTransferred = 0;
     }
-    else {
+    if (!c) {
         const nc = { id: compId(), ...out };
         if (bind && kind === 'familiar' && !(await bindFamiliarCost(nc))) return;
         list.push(nc);
@@ -504,10 +529,12 @@ async function bindFamiliarCost(f) {
     const hd = familiarHdValue(f.hd) || 1;                // ½ HD costs 150 XP, ¼ HD 75 XP
     const xpCost = f.homunculus ? 10000 : Math.round(300 * hd);
     const t = window.ClassesDatabase?.[ch.characterClass]?.xpTable;
-    const floor = t ? Number(t[Number(ch.level) || 1]) || 0 : 0;
+    // Not below the current level (or, for a young creature hero, its current stage).
+    const stage = typeof getCreatureStage === 'function' ? getCreatureStage(ch) : null;
+    const floor = stage ? stage.xp : (t ? Number(t[Number(ch.level) || 1]) || 0 : 0);
     const xp = Number(ch.experiencePoints) || 0;
     if (xp - xpCost < floor) {
-        await sheetAlert(`Binding costs ${xpCost.toLocaleString('en-US')} XP, which would drop you below level ${ch.level}. The ritual needs enough experience to spare.`);
+        await sheetAlert(`Binding costs ${xpCost.toLocaleString('en-US')} XP, which would drop you below ${stage ? stage.name : 'level ' + ch.level}. The ritual needs enough experience to spare.`);
         return false;
     }
     const hpLoss = f.homunculus ? 0 : compRoll(1, 4);
@@ -550,24 +577,8 @@ async function awardCompanionXp(id) {
     if (lvl && lvl > before) await sheetAlert(`${c.name} reaches level ${lvl}! Roll the new hit dice and update the hit points.`);
 }
 
-async function payCompanionWages() {
-    const list = companionsState().filter(c => monthlyCost(c) > 0);
-    const perMonth = list.reduce((s, c) => s + monthlyCost(c), 0);
-    if (!perMonth) return;
-    // Every month since the last payment is owed (at least the current one).
-    const cal = typeof calendarState === 'function' ? calendarState() : null;
-    const months = cal ? Math.max(1, calParts(cal.t).monthAbs - (cal.wagesMonth ?? calParts(cal.t).monthAbs)) : 1;
-    const total = perMonth * months;
-    const src = typeof monthlyPaySource === 'function' ? monthlyPaySource() : 'purse';
-    const lines = list.map(c => `${c.name}: ${compGp(monthlyCost(c))}`).join('\n');
-    const what = months > 1 ? `${months} months of wages (unpaid since then)` : `a month's wages`;
-    if (!(await sheetConfirm(`Pay ${what}, ${compGp(total)} in all, from your ${typeof paySourceLabel === 'function' ? paySourceLabel(src) : 'purse'}?\n\nEach month:\n${lines}`, 'Pay'))) return;
-    if (!(await holdingsPay(total, src))) return;
-    compLog(`Paid ${what.replace(' (unpaid since then)', '')}: ${compGp(total)} (${list.map(c => c.name).join(', ')}).`, { wages: total, months });
-    if (typeof calendarState === 'function') { calendarState().wagesMonth = calParts(calendarState().t).monthAbs; if (typeof renderGameClock === 'function') renderGameClock(); }
-    if (typeof syncInventoryUI === 'function') { try { syncInventoryUI(); } catch (e) { console.error(e); } }
-    compSave();
-}
+// Wages are paid together with the household costs (js/holdings.js: payMonthlyBills).
+function payCompanionWages() { return typeof payMonthlyBills === 'function' ? payMonthlyBills() : undefined; }
 
 // The master gains the familiar's skill (free), or +2 if he already has it (Tome of the Magic of Mystara).
 async function grantFamiliarSkill(id) {

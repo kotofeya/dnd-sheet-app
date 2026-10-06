@@ -1,12 +1,12 @@
 // Fallback text only; classes.ts is the primary source (Dark Dungeons Chapter 4 equipment restrictions).
 const CLASS_PROFICIENCIES_DATA = {
-    'Fighter': { armor: 'Any armor (Leather, Scale, Chain, Banded, Plate, Suit)', shields: true, weapons: 'Any weapons' },
-    'Cleric': { armor: 'Any armor', shields: true, weapons: 'Blunt weapons only (Club, Mace, War Hammer, Throwing Hammer, Sling, Staff, Blackjack)' },
+    'Fighter': { armor: 'Any armour (Leather, Scale, Chain, Banded, Plate, Suit)', shields: true, weapons: 'Any weapons' },
+    'Cleric': { armor: 'Any armour', shields: true, weapons: 'Blunt weapons only (Club, Mace, War Hammer, Throwing Hammer, Sling, Staff, Blackjack)' },
     'Magic-User': { armor: 'None', shields: false, weapons: 'Dagger, Staff, Sling, Whip, Net, Blowgun, Pistol' },
     'Thief': { armor: 'Leather armor only', shields: false, weapons: 'Any one-handed weapon and any missile weapon (no two-handed melee, no shields)' },
-    'Dwarf': { armor: 'Any armor', shields: true, weapons: 'Small & medium weapons (no large weapons, see Table 6-1)' },
-    'Elf': { armor: 'Any armor', shields: true, weapons: 'Any weapons' },
-    'Halfling': { armor: 'Any armor', shields: true, weapons: 'Small weapons only (see Table 6-1)' },
+    'Dwarf': { armor: 'Any armour', shields: true, weapons: 'Small & medium weapons (no large weapons, see Table 6-1)' },
+    'Elf': { armor: 'Any armour', shields: true, weapons: 'Any weapons' },
+    'Halfling': { armor: 'Any armour', shields: true, weapons: 'Small weapons only (see Table 6-1)' },
     'Mystic': { armor: 'None', shields: false, weapons: 'Any weapon (unarmed martial arts preferred)' }
 };
 
@@ -386,11 +386,12 @@ let editingCustomSpellId = null;
 function openSpellModal(spellId) {
     const spell = spellId ? ((currentCharacter && currentCharacter.spellbook && currentCharacter.spellbook.customSpells) || []).find(s => s.id === spellId) : null;
     editingCustomSpellId = spell ? spell.id : null;
-    document.getElementById('custom-spell-modal').style.display = 'flex';
+    const modal = document.getElementById('custom-spell-modal');
+    modal.style.display = 'flex';
     const title = document.getElementById('custom-spell-title');
-    if (title) title.textContent = spell ? 'Edit Custom Spell' : 'Create Custom Spell';
+    if (title) title.textContent = spell ? 'Edit custom spell' : 'Create custom spell';
     const save = document.getElementById('custom-spell-save');
-    if (save) save.textContent = spell ? 'Save Changes' : 'Save Spell';
+    if (save) save.textContent = spell ? 'Save changes' : 'Save spell';
     safeSetVal('new-spell-name', spell ? spell.name || '' : '');
     safeSetVal('new-spell-level', spell ? spell.level || 1 : 1);
     safeSetVal('new-spell-range', spell ? spell.range || '' : '');
@@ -398,6 +399,9 @@ function openSpellModal(spellId) {
     safeSetVal('new-spell-effect', spell ? spell.effect || '' : '');
     safeSetVal('new-spell-desc', spell ? spell.description || '' : '');
     showResearchedOption('new-spell-researched', !spell);
+    const card = modal.querySelector('.card');
+    if (typeof watchFormEdits === 'function') { watchFormEdits(card); resetFormEdits(card); }
+    document.getElementById('new-spell-name')?.focus();
 }
 
 // "I researched it" on the add-spell windows: only for a wizard who owns a library (GAZ3 p. 66).
@@ -414,11 +418,19 @@ function researchedOptionChecked(id) {
 }
 
 function closeSpellModal() {
-    document.getElementById('custom-spell-modal').style.display = 'none';
+    const modal = document.getElementById('custom-spell-modal');
+    modal.style.display = 'none';
+    if (typeof resetFormEdits === 'function') resetFormEdits(modal.querySelector('.card'));
     editingCustomSpellId = null;
 }
+// Esc or a click on the dark backdrop: ask before throwing away what was typed.
+async function magCloseSpellModalAsk() {
+    const card = document.querySelector('#custom-spell-modal .card');
+    if (typeof okToDiscard === 'function' && !(await okToDiscard(card))) return;
+    closeSpellModal();
+}
 
-function saveCustomSpell() {
+async function saveCustomSpell() {
     if (!currentCharacter) return;
     const name = document.getElementById('new-spell-name').value.trim();
     const level = Math.min(9, Math.max(1, Math.round(Number(document.getElementById('new-spell-level').value) || 1)));
@@ -426,8 +438,8 @@ function saveCustomSpell() {
     const duration = document.getElementById('new-spell-duration').value.trim();
     const effect = document.getElementById('new-spell-effect').value.trim();
     const desc = document.getElementById('new-spell-desc').value.trim();
-    
-    if (!name) return alert("Spell needs a name!");
+
+    if (!name) { await sheetAlert('The spell needs a name.'); document.getElementById('new-spell-name')?.focus(); return; }
     if (!currentCharacter.spellbook) currentCharacter.spellbook = { knownSpellIds: [], customSpells: [], preparedSpells: {} };
     
     if (!Array.isArray(currentCharacter.spellbook.customSpells)) currentCharacter.spellbook.customSpells = [];
@@ -444,6 +456,7 @@ function saveCustomSpell() {
         closeSpellModal();
         debouncedSave();
         renderSpellbooks();
+        magSpellsChanged();
         return;
     }
 
@@ -462,64 +475,132 @@ function saveCustomSpell() {
     renderSpellbooks();
 }
 
+// ---- Add from Compendium: a searchable list grouped by spell level ----
+let magCompendiumPick = null;          // spell id chosen in the list
+function magCompendiumSpells() {
+    const book = (currentCharacter && currentCharacter.spellbook) || {};
+    const knownIds = new Set(book.knownSpellIds || []);
+    return Object.values(GlobalSpellsDatabase).filter(s => s.casterType === 'arcane' && !knownIds.has(s.id))
+        .sort((a, b) => (a.level - b.level) || String(a.name).localeCompare(String(b.name)));
+}
 function openCompendiumModal() {
     if (!currentCharacter) return;
-    const select = document.getElementById('compendium-select');
-    const preview = document.getElementById('compendium-preview');
+    magCompendiumPick = null;
     safeSetVal('compendium-search', '');
-    const book = currentCharacter.spellbook || { knownSpellIds: [], customSpells: [] };
-    const knownIds = book.knownSpellIds || [];
-
-    const availableSpells = Object.values(GlobalSpellsDatabase).filter(s => 
-        s.casterType === 'arcane' && !knownIds.includes(s.id)
-    ).sort((a, b) => (a.level - b.level) || String(a.name).localeCompare(String(b.name)));
-
-    select.innerHTML = '';
-    if (availableSpells.length === 0) {
-        select.innerHTML = '<option value="">-- No Spells Available --</option>';
-        preview.innerText = 'All compendium spells are already in your spellbook.';
-    } else {
-        availableSpells.forEach(s => {
-            const opt = document.createElement('option');
-            opt.value = s.id;
-            opt.textContent = `[Tier ${s.level}] ${s.name}`;
-            select.appendChild(opt);
-        });
-        preview.innerText = availableSpells[0].description || '';
-    }
-
-    select.onchange = (e) => {
-        const spell = GlobalSpellsDatabase[e.target.value];
-        preview.innerText = spell ? spell.description : '';
-    };
-
+    renderCompendiumList();
     document.getElementById('compendium-modal').style.display = 'flex';
     showResearchedOption('compendium-researched', true);
+    document.getElementById('compendium-search')?.focus();
+}
+function renderCompendiumList() {
+    const list = document.getElementById('compendium-list');
+    if (!list) return;
+    const q = String(document.getElementById('compendium-search')?.value || '').trim().toLowerCase();
+    const all = magCompendiumSpells();
+    // Names first; only when no name matches, look in the descriptions too.
+    const byName = q ? all.filter(s => String(s.name).toLowerCase().includes(q)) : all;
+    const shown = byName.length || !q ? byName : all.filter(s => String(s.description || '').toLowerCase().includes(q));
+    if (magCompendiumPick && !shown.some(s => s.id === magCompendiumPick)) magCompendiumPick = null;
+    if (!all.length) list.innerHTML = '<div class="ledger-note">Every compendium spell is already in your spellbook.</div>';
+    else if (!shown.length) list.innerHTML = `<div class="ledger-note">No spell matches “${escapeHtml(q)}”.</div>`;
+    else {
+        const levels = [...new Set(shown.map(s => s.level))];
+        list.innerHTML = levels.map(l => `<div class="mag-comp-group" role="group" aria-label="Level ${l} spells">
+            <div class="eyebrow mag-comp-level">Level ${l}</div>
+            ${shown.filter(s => s.level === l).map(s => `<button type="button" class="mag-comp-item${s.id === magCompendiumPick ? ' on' : ''}" aria-pressed="${s.id === magCompendiumPick}" onclick="pickCompendiumSpell('${s.id}')">${escapeHtml(s.name)}</button>`).join('')}
+        </div>`).join('');
+    }
+    renderCompendiumPreview();
+}
+function pickCompendiumSpell(id) {
+    magCompendiumPick = id;
+    document.querySelectorAll('#compendium-list .mag-comp-item').forEach(b => {
+        const on = b.getAttribute('onclick') === `pickCompendiumSpell('${id}')`;
+        b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    });
+    renderCompendiumPreview();
+}
+function renderCompendiumPreview() {
+    const preview = document.getElementById('compendium-preview');
+    const addBtn = document.getElementById('compendium-add');
+    const s = magCompendiumPick ? GlobalSpellsDatabase[magCompendiumPick] : null;
+    if (addBtn) { addBtn.disabled = !s; addBtn.textContent = s ? `Add ${s.name}` : 'Add'; }
+    if (!preview) return;
+    if (!s) { preview.innerHTML = '<span class="ledger-note">Choose a spell to read it.</span>'; return; }
+    const meta = [['Level', s.level], ['Range', s.range], ['Duration', s.duration], ['Effect', s.effect]].filter(([, v]) => v !== undefined && v !== null && v !== '');
+    preview.innerHTML = `<strong>${escapeHtml(s.name)}</strong>
+        <div class="mag-comp-meta">${meta.map(([k, v]) => `<span><span class="eyebrow">${k}</span> ${escapeHtml(String(v))}</span>`).join('')}</div>
+        <div class="mag-comp-desc">${escapeHtml(s.description || '')}</div>
+        ${s.source ? `<div class="patron-spell-src">${escapeHtml(s.source)}</div>` : ''}`;
 }
 
 function closeCompendiumModal() {
     document.getElementById('compendium-modal').style.display = 'none';
+    magCompendiumPick = null;
 }
 
 function addSpellFromCompendium() {
     if (!currentCharacter) return;
-    const select = document.getElementById('compendium-select');
-    const spellId = select.value;
-    if (!spellId) return;
+    const spellId = magCompendiumPick;
+    if (!spellId || !GlobalSpellsDatabase[spellId]) return;
 
     if (!currentCharacter.spellbook) currentCharacter.spellbook = { knownSpellIds: [], customSpells: [], preparedSpells: {} };
     if (!currentCharacter.spellbook.knownSpellIds) currentCharacter.spellbook.knownSpellIds = [];
 
+    const sp = GlobalSpellsDatabase[spellId];
     if (!currentCharacter.spellbook.knownSpellIds.includes(spellId)) {
         currentCharacter.spellbook.knownSpellIds.push(spellId);
-        const sp = GlobalSpellsDatabase[spellId];
         if (sp && researchedOptionChecked('compendium-researched') && typeof addResearchedSpellToLibrary === 'function') addResearchedSpellToLibrary(sp.name, sp.level, sp.id);
     }
 
     closeCompendiumModal();
     debouncedSave();
     renderSpellbooks();
+    if (typeof sheetToast === 'function') sheetToast(`${sp.name} added to your spellbook.`);
 }
+
+// Esc and backdrop clicks for the spell windows (the compendium is a picker; the custom form asks first).
+(function magBindSpellWindows() {
+    const bind = () => {
+        const comp = document.getElementById('compendium-modal');
+        const form = document.getElementById('custom-spell-modal');
+        if (typeof registerModalCloser === 'function') {
+            registerModalCloser('compendium-modal', closeCompendiumModal);
+            registerModalCloser('custom-spell-modal', magCloseSpellModalAsk);
+        }
+        if (comp && !comp.__magBound) { comp.__magBound = true; comp.addEventListener('click', e => { if (e.target === comp) closeCompendiumModal(); }); }
+        if (form && !form.__magBound) { form.__magBound = true; form.addEventListener('click', e => { if (e.target === form) magCloseSpellModalAsk(); }); }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+})();
+
+// "Prepared only" view, per spellbook (saved on the character as spellbook.view[key]).
+// Until the player chooses, it is on as soon as anything is prepared in that book.
+function magPreparedOnly(book, key, anyPrepared) {
+    const v = book && book.view && typeof book.view === 'object' ? book.view[key] : undefined;
+    if (v === 'prepared') return true;
+    if (v === 'all') return false;
+    return Boolean(anyPrepared);
+}
+function setSpellbookView(key, preparedOnly) {
+    if (!currentCharacter) return;
+    if (!currentCharacter.spellbook) currentCharacter.spellbook = { knownSpellIds: [], customSpells: [], preparedSpells: {} };
+    const book = currentCharacter.spellbook;
+    if (!book.view || typeof book.view !== 'object') book.view = {};
+    book.view[key] = preparedOnly ? 'prepared' : 'all';
+    debouncedSave();
+    renderSpellbooks();
+}
+
+// Spell descriptions the player has opened, per spellbook, so they stay open when the book is redrawn.
+const magOpenSpells = {};
+let magOpenOwner = null;               // the character those open spells belong to
+function magOpenSet(key) {
+    if (magOpenOwner !== currentCharacter) { magOpenOwner = currentCharacter; Object.keys(magOpenSpells).forEach(k => delete magOpenSpells[k]); }
+    return magOpenSpells[key] || (magOpenSpells[key] = new Set());
+}
+
+const MAG_LEVEL_WORDS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth'];
 
 function renderSpellbook(profile, containerId = 'spellbook-section') {
     const container = document.getElementById(containerId);
@@ -557,6 +638,13 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
     const combo = spellCombinationActive(profile);
     const capacity = safeSlots.reduce((sum, n, i) => sum + (Number(n) || 0) * (i + 1), 0);
     const levelsUsed = allSpells.filter(s => s.level <= maxSpellLevel).reduce((sum, s) => sum + (prepMap[s.id] || 0) * s.level, 0);
+    const anyPrepared = allSpells.some(s => s.level <= maxSpellLevel && (prepMap[s.id] || 0) > 0);
+    const locked = Boolean(isSpellbookLocked);
+    // Unlocked for editing, or searching: every spell is shown.
+    const preparedOnlyChoice = magPreparedOnly(book, key, anyPrepared);
+    const preparedOnly = preparedOnlyChoice && locked && !spellQuery;
+    const openSet = magOpenSet(key);
+    let hiddenCount = 0;
 
     for (let lvl = 1; lvl <= maxSpellLevel; lvl++) {
         const slotCount = safeSlots[lvl - 1] || 0;
@@ -569,17 +657,30 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
         const poolPrepared = pool ? allSpells.filter(s => s.level >= pool[0] && s.level <= pool[1]).reduce((sum, s) => sum + (prepMap[s.id] || 0), 0) : 0;
         const isTierFull = combo ? levelsUsed + lvl > capacity : pool ? poolPrepared >= slotCount : totalPreparedInTier >= slotCount;
         const slotText = combo ? `Prepared ${totalPreparedInTier}` : pool ? `Levels ${pool[0]}-${pool[1]}: ${poolPrepared} / ${slotCount}` : `Slots: ${totalPreparedInTier} / ${slotCount}`;
+        const levelWord = MAG_LEVEL_WORDS[lvl - 1] || String(lvl);
+        const fullTitle = combo ? 'Not enough spell levels left for another spell of this level' : `All ${levelWord.toLowerCase()}-level slots are used`;
 
         // Search box: show only matching spells (counts and slots still include every spell).
-        const shownOfLevel = spellQuery ? spellsOfLevel.filter(s => `${s.name} ${s.description || ''} ${s.effect || ''}`.toLowerCase().includes(spellQuery)) : spellsOfLevel;
+        let shownOfLevel = spellQuery ? spellsOfLevel.filter(s => `${s.name} ${s.description || ''} ${s.effect || ''}`.toLowerCase().includes(spellQuery)) : spellsOfLevel;
         if (spellQuery && !shownOfLevel.length) continue;
+        if (preparedOnly) {
+            const before = shownOfLevel.length;
+            shownOfLevel = shownOfLevel.filter(s => (prepMap[s.id] || 0) > 0);
+            hiddenCount += before - shownOfLevel.length;
+        }
         const spellsListHtml = shownOfLevel.map(s => {
             const count = prepMap[s.id] || 0;
             const cast = Math.min(castMap[s.id] || 0, count);
+            const nameText = escapeHtml(s.name);
+            const isOpen = openSet.has(s.id);
+            const detailsId = `spell-details-${key}-${s.id}`;
             // One pip per prepared copy: filled = already cast today.
             const pipsHtml = count > 0
-                ? `<span class="cast-pips" onclick="event.stopPropagation();">${Array.from({ length: count }, (_, i) =>
-                    `<button type="button" class="cast-pip${i < cast ? ' spent' : ''}" onclick="toggleSpellCast('${s.id}', ${i})" title="${i < cast ? 'Cast — click to un-mark' : 'Prepared — click when cast'}" aria-label="${escapeHtml(s.name)} copy ${i + 1}: ${i < cast ? 'cast' : 'ready'}"></button>`).join('')}</span>`
+                ? `<div class="cast-pips mag-pips" role="group" aria-label="${nameText}: ${count - cast} of ${count} ready">${Array.from({ length: count }, (_, i) => {
+                    const spent = i < cast;
+                    const label = spent ? `Un-mark one ${nameText} cast` : `Mark one ${nameText} cast`;
+                    return `<button type="button" class="cast-pip${spent ? ' spent' : ''}" onclick="toggleSpellCast('${s.id}', ${i})" title="${spent ? 'Cast: click to un-mark' : 'Ready: click when cast'}" aria-label="${label}"></button>`;
+                }).join('')}</div>`
                 : '';
             const allSpent = count > 0 && cast >= count;
             const rangeHtml = s.range ? `<div><span style="color: var(--text-main);">Range:</span> ${escapeHtml(s.range)}</div>` : '';
@@ -590,31 +691,33 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
                 : '';
 
             const isDeletable = s.isCustom || (profile.type === 'arcane' && book.knownSpellIds && book.knownSpellIds.includes(s.id));
-            const editBtnHtml = (!isSpellbookLocked && s.isCustom)
-                ? `<button type="button" onclick="openSpellModal('${s.id}'); event.stopPropagation();" class="spell-edit-btn" title="Edit spell" aria-label="Edit ${escapeHtml(s.name)}">${getIcon('edit', 14)}</button>`
+            const editBtnHtml = (!locked && s.isCustom)
+                ? `<button type="button" class="btn btn-sm" onclick="openSpellModal('${s.id}')">${getIcon('edit', 12)} Edit spell</button>`
                 : '';
-            const deleteBtnHtml = (!isSpellbookLocked && isDeletable) 
-                ? `<button onclick="deleteSpell('${s.id}', ${s.isCustom}); event.stopPropagation();" style="background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 0.9rem; display: inline-flex;" title="Remove Spell" aria-label="Remove spell">${getIcon('close', 15)}</button>` 
+            const deleteBtnHtml = (!locked && isDeletable)
+                ? `<button type="button" class="btn btn-sm btn-danger" onclick="deleteSpell('${s.id}', ${Boolean(s.isCustom)})">Remove ${nameText}</button>`
                 : '';
+            const plusDisabled = isTierFull;
 
             return `
-            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent);">
-                <div style="display: flex; justify-content: space-between; align-items: center; user-select: none;">
-                    <div onclick="toggleSpellDetails('${s.id}')" style="color: ${allSpent ? 'var(--text-muted)' : (count > 0 ? 'var(--accent-gold)' : 'var(--text-main)')}; ${allSpent ? 'text-decoration: line-through;' : ''} font-weight: bold; font-size: 0.9rem; cursor: pointer; flex-grow: 1;">
-                        ${escapeHtml(s.name)} ${s.isCustom ? `<span style="color:var(--accent-gold);" title="Custom Spell">${getIcon('star', 12)}</span>` : ''}${s.grantedBy ? `<span class="patron-spell-tag" title="${escapeHtml(s.grantNote || '')}">${getIcon('candle', 11)}</span>` : ''}${pipsHtml}
-                    </div>
-                    ${editBtnHtml || deleteBtnHtml ? `<span class="spell-row-actions">${editBtnHtml}${deleteBtnHtml}</span>` : ''}
-                    <div style="display: flex; align-items: center; gap: 6px; background: var(--inset); padding: 2px 6px; border-radius: 2px; border: 1px solid var(--border-color); margin-left: 8px;" onclick="event.stopPropagation();">
-                        <button onclick="adjustPreparedSpell('${s.id}', ${lvl}, -1, ${slotCount}, '${key}')" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 0 4px; font-weight: bold;">-</button>
-                        <span style="color: ${count > 0 ? 'var(--accent-gold)' : 'var(--text-muted)'}; font-family: monospace; width: 12px; text-align: center;">${count}</span>
-                        <button onclick="adjustPreparedSpell('${s.id}', ${lvl}, 1, ${slotCount}, '${key}')" style="background: transparent; border: none; color: ${isTierFull ? 'var(--border-color)' : 'var(--text-muted)'}; cursor: ${isTierFull ? 'default' : 'pointer'}; padding: 0 4px; font-weight: bold;">+</button>
+            <div class="mag-spell${count > 0 ? ' prepared' : ''}${allSpent ? ' spent' : ''}">
+                <div class="mag-spell-head">
+                    <button type="button" class="mag-spell-name" onclick="toggleSpellDetails('${s.id}', '${key}')" aria-expanded="${isOpen}" aria-controls="${detailsId}">
+                        ${nameText}${s.isCustom ? ` <span class="mag-custom-mark" title="Custom spell">${getIcon('star', 12)}</span>` : ''}${s.grantedBy ? `<span class="patron-spell-tag" title="${escapeHtml(s.grantNote || '')}">${getIcon('candle', 11)}</span>` : ''}
+                    </button>
+                    <div class="mag-prep" role="group" aria-label="Prepared copies of ${nameText}">
+                        <button type="button" class="mag-prep-btn" onclick="adjustPreparedSpell('${s.id}', ${lvl}, -1, ${slotCount}, '${key}')" ${count > 0 ? '' : 'disabled'} title="Prepare one fewer" aria-label="Prepare one fewer ${nameText}">−</button>
+                        <span class="mag-prep-count" aria-label="${count} prepared">${count}</span>
+                        <button type="button" class="mag-prep-btn" onclick="adjustPreparedSpell('${s.id}', ${lvl}, 1, ${slotCount}, '${key}')" ${plusDisabled ? `disabled title="${fullTitle}"` : 'title="Prepare one more"'} aria-label="Prepare one more ${nameText}">+</button>
                     </div>
                 </div>
-                <div id="spell-details-${s.id}" style="display: none; margin-top: 8px; padding-left: 8px; border-left: 2px solid var(--accent-gold-dim);">
+                ${pipsHtml}
+                <div id="${detailsId}" class="mag-spell-details" style="display: ${isOpen ? 'block' : 'none'};">
                     ${s.grantNote ? `<div class="patron-spell-note">${escapeHtml(s.grantNote)}</div>` : ''}
                     ${metaBlock}
                     <div style="color: var(--text-muted); font-size: 0.8rem; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(s.description)}</div>
                     ${s.source ? `<div class="patron-spell-src">${escapeHtml(s.source)}</div>` : ''}
+                    ${editBtnHtml || deleteBtnHtml ? `<div class="mag-spell-actions">${editBtnHtml}${deleteBtnHtml}</div>` : ''}
                 </div>
             </div>
             `;
@@ -623,43 +726,53 @@ function renderSpellbook(profile, containerId = 'spellbook-section') {
         tiersHtml += `
             <div style="border: 1px solid ${isTierFull ? 'var(--accent-gold-dim)' : 'var(--border-color)'}; border-radius: 2px; padding: 10px; background: color-mix(in srgb, var(--text-main) 3%, transparent);">
                 <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-                    <span class="note-col-title">${['First','Second','Third','Fourth','Fifth','Sixth','Seventh','Eighth','Ninth'][lvl - 1] || lvl} Level</span>
+                    <span class="note-col-title">${levelWord} Level</span>
                     <span style="font-size: 0.75rem; color: ${isTierFull ? 'var(--good)' : 'var(--text-muted)'}; font-family: var(--font-ui);">${slotText}${totalPreparedInTier ? ` · ${totalPreparedInTier - castInTier} left` : ''}</span>
                 </div>
-                ${spellsListHtml}
+                ${spellsListHtml || (preparedOnly ? '<div class="ledger-note mag-none">None prepared</div>' : '')}
             </div>
         `;
     }
 
-    const compendiumBtn = (profile.type === 'arcane' && !profile.spellList && !isSpellbookLocked) 
-        ? `<button onclick="openCompendiumModal()" style="background: transparent; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 50%, transparent); border-radius: 2px; padding: 4px 8px; font-size: 0.9rem; cursor: pointer;">+ Compendium</button>` 
+    const canAdd = profile.type === 'arcane' && !profile.spellList;
+    const compendiumBtn = (canAdd && !locked)
+        ? `<button type="button" class="btn btn-sm" onclick="openCompendiumModal()">+ Compendium</button>`
         : '';
-
-    const customSpellBtn = (profile.type === 'arcane' && !profile.spellList && !isSpellbookLocked)
-        ? `<button onclick="openSpellModal()" style="background: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); border-radius: 2px; padding: 4px 8px; font-size: 0.9rem; cursor: pointer;">+ Custom Spell</button>`
+    const customSpellBtn = (canAdd && !locked)
+        ? `<button type="button" class="btn btn-sm" onclick="openSpellModal()">+ Custom spell</button>`
+        : '';
+    // Clerics, shamans and the like know every spell of their list: there is nothing to add.
+    const fixedListNote = (!canAdd && !locked)
+        ? `<div class="ledger-note mag-fixed-note">You know every spell on this list, so there are none to add. Prepare the ones you want below.</div>`
+        : '';
+    const hiddenNote = preparedOnly && hiddenCount
+        ? `<div class="ledger-note mag-hidden-note">${hiddenCount} unprepared spell${hiddenCount === 1 ? '' : 's'} hidden. Untick “Prepared only” to prepare others.</div>`
         : '';
 
     container.innerHTML = `
         <div class="panel-head">
             <h2>${title}</h2>
-            <div style="display: flex; gap: 8px;">
-                <button onclick="toggleSpellbookLock()" style="background: transparent; color: ${isSpellbookLocked ? 'var(--text-muted)' : 'var(--danger)'}; border: 1px solid ${isSpellbookLocked ? 'var(--border-color)' : 'var(--danger)'}; border-radius: 2px; padding: 4px 8px; font-size: 0.9rem; cursor: pointer;">
-                    ${isSpellbookLocked ? `${getIcon('lock', 14)} Locked` : `${getIcon('unlock', 14)} Unlocked`}
+            <div class="mag-book-tools">
+                <button type="button" class="btn btn-sm${locked ? '' : ' btn-danger'}" onclick="toggleSpellbookLock()" title="${locked ? 'Unlock to add, edit or remove spells' : 'Lock the spellbook against changes'}">
+                    ${locked ? `${getIcon('unlock', 13)} Unlock to edit` : `${getIcon('lock', 13)} Lock`}
                 </button>
-                <button type="button" class="btn btn-sm" onclick="restSpellbook('${key}')" title="After a night's rest: all prepared spells are ready again">Rest</button>
+                <button type="button" class="btn btn-sm" onclick="refillSpellbook('${key}')" title="Marks every prepared spell in this book ready again without moving the calendar. To rest and move the calendar, use + Day or Rest a day: they refill spells too.">Refill (no time passes)</button>
                 ${compendiumBtn}
                 ${customSpellBtn}
             </div>
         </div>
+        ${fixedListNote}
         <div class="tally spell-tally" style="margin-bottom: 16px;">
             <span>Casts as level <strong>${toRoman(profile.effectiveLevel)}</strong></span>
             <span>Highest spell level <strong>${maxSpellLevel}</strong></span>
             ${combo ? `<span title="Spell Combination: any mix of spell levels up to your total">Spell levels <strong>${levelsUsed} / ${capacity}</strong></span>` : ''}
             ${preparedTotal ? `<span>Spells left today <strong>${preparedTotal - castTotal} / ${preparedTotal}</strong></span>` : ''}
-            <label class="list-search"><input type="search" id="spell-search-${key}" placeholder="Search spells…" value="${escapeHtml(spellSearchText[key] || '')}" autocomplete="off" oninput="setSpellSearch('${key}', this.value)" onkeydown="if (event.key === 'Escape') { this.value = ''; setSpellSearch('${key}', ''); }" aria-label="Search spells"></label>
+            <label class="list-search"><input type="search" id="spell-search-${key}" placeholder="Search spells…" value="${escapeHtml(spellSearchText[key] || '')}" autocomplete="off" oninput="setSpellSearch('${key}', this.value)" onkeydown="if (event.key === 'Escape' && this.value) { event.preventDefault(); this.value = ''; setSpellSearch('${key}', ''); }" aria-label="Search spells"></label>
             <label class="spell-sort">Sort <select class="stat-input" onchange="setSpellSort(this.value)" aria-label="Sort spells">${SPELL_SORTS.map(o => `<option value="${o.value}" ${o.value === spellSort ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>
+            <label class="spell-sort mag-prep-only" title="${locked ? 'Hide spells with no prepared copies' : 'Every spell is shown while the book is unlocked'}"><input type="checkbox" ${preparedOnlyChoice ? 'checked' : ''} ${locked ? '' : 'disabled'} onchange="setSpellbookView('${key}', this.checked)"> Prepared only</label>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+        ${hiddenNote}
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;">
             ${tiersHtml || (spellQuery ? `<div class="ledger-note">No spell matches “${escapeHtml(spellSearchText[key])}”.</div>` : '')}
         </div>
     `;
@@ -712,10 +825,43 @@ function spellCombinationActive(profile) {
     return Boolean(school && Array.isArray(school.done) && school.done.some(x => x && x.id === 'combination') && school.useCombination !== false);
 }
 
-function toggleSpellDetails(spellId) {
-    const el = document.getElementById(`spell-details-${spellId}`);
-    if (el) el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
+function toggleSpellDetails(spellId, key = 'main') {
+    const set = magOpenSet(key);
+    const open = !set.has(spellId);
+    if (open) set.add(spellId); else set.delete(spellId);
+    const el = document.getElementById(`spell-details-${key}-${spellId}`);
+    if (el) {
+        el.style.display = open ? 'block' : 'none';
+        const btn = document.querySelector(`[aria-controls="spell-details-${key}-${spellId}"]`);
+        if (btn) btn.setAttribute('aria-expanded', String(open));
+    }
 }
+
+// Tell the rest of the sheet (the status strip) that prepared or cast spells changed.
+function magSpellsChanged() {
+    try { document.dispatchEvent(new CustomEvent('sheet:spells-changed')); } catch (e) { console.error(e); }
+}
+
+// Spells left today over all the character's spellbooks: prepared copies not yet cast.
+// null when the character casts no spells.
+function spellsLeftToday() {
+    if (!currentCharacter) return null;
+    const profiles = getCasterProfiles(currentCharacter).filter(p => p.type && Array.isArray(p.slots) && p.slots.length && Number(p.effectiveLevel) > 0 && !p.notReadyNote);
+    if (!profiles.length) return null;
+    const book = currentCharacter.spellbook || {};
+    const prep = book.preparedSpells || {}, cast = book.castSpells || {};
+    const seen = new Set();
+    let total = 0, left = 0;
+    profiles.forEach(p => getSpellsForProfile(p, book, currentCharacter.deity).forEach(s => {
+        if (seen.has(s.id) || s.level > p.slots.length) return;
+        seen.add(s.id);
+        const n = Number(prep[s.id]) || 0;
+        total += n;
+        left += n - Math.min(Number(cast[s.id]) || 0, n);
+    }));
+    return { left, total };
+}
+window.spellsLeftToday = spellsLeftToday;
 
 // Mark one prepared copy of a spell as cast (or un-mark it).
 function toggleSpellCast(spellId, pipIndex) {
@@ -728,6 +874,7 @@ function toggleSpellCast(spellId, pipIndex) {
     if (next > 0) book.castSpells[spellId] = next; else delete book.castSpells[spellId];
     debouncedSave();
     renderSpellbooks();
+    magSpellsChanged();
 }
 
 // After rest every prepared spell in this book is ready again (preparations are kept).
@@ -739,6 +886,17 @@ function restSpellbook(profileKey = 'main') {
     getSpellsForProfile(profile, book, currentCharacter.deity).forEach(s => { delete book.castSpells[s.id]; });
     debouncedSave();
     renderSpellbooks();
+    magSpellsChanged();
+}
+
+// The spellbook's own refill button: no time passes, so it only clears the cast marks.
+function refillSpellbook(profileKey = 'main') {
+    if (!currentCharacter) return;
+    restSpellbook(profileKey);
+    const profile = getProfileByKey(profileKey);
+    const book = currentCharacter.spellbook || {};
+    const n = profile ? getSpellsForProfile(profile, book, currentCharacter.deity).reduce((sum, s) => sum + (Number((book.preparedSpells || {})[s.id]) || 0), 0) : 0;
+    if (typeof sheetToast === 'function') sheetToast(n ? `Spells refilled: all ${n} prepared spell${n === 1 ? ' is' : 's are'} ready again. The calendar did not move.` : 'Nothing to refill: no spells are prepared in this book.');
 }
 
 function toggleSpellbookLock() {
@@ -787,11 +945,13 @@ function adjustPreparedSpell(spellId, tier, delta, maxSlots, profileKey = 'main'
 
     debouncedSave();
     renderSpellbooks();
+    magSpellsChanged();
 }
 
 async function deleteSpell(spellId, isCustom) {
     if (!currentCharacter || !currentCharacter.spellbook) return;
-    const isConfirmed = await sheetConfirm('Are you sure you want to remove this spell from your spellbook?', 'Remove');
+    const sp = isCustom ? (currentCharacter.spellbook.customSpells || []).find(s => s.id === spellId) : GlobalSpellsDatabase[spellId];
+    const isConfirmed = await sheetConfirm(`Remove “${sp ? sp.name : 'this spell'}” from your spellbook?`, 'Remove');
     if (!isConfirmed) return;
 
     if (isCustom) {
@@ -805,9 +965,11 @@ async function deleteSpell(spellId, isCustom) {
     if (currentCharacter.spellbook.preparedSpells && currentCharacter.spellbook.preparedSpells[spellId]) {
         delete currentCharacter.spellbook.preparedSpells[spellId];
     }
+    if (currentCharacter.spellbook.castSpells) delete currentCharacter.spellbook.castSpells[spellId];
     
     debouncedSave();
     renderSpellbooks();
+    magSpellsChanged();
 }
 
 function getTurningLevel(character) {
@@ -964,3 +1126,7 @@ window.adjustPreparedSpell = adjustPreparedSpell;
 window.deleteSpell = deleteSpell;
 window.toggleSpellCast = toggleSpellCast;
 window.restSpellbook = restSpellbook;
+window.refillSpellbook = refillSpellbook;
+window.setSpellbookView = setSpellbookView;
+window.pickCompendiumSpell = pickCompendiumSpell;
+window.renderCompendiumList = renderCompendiumList;

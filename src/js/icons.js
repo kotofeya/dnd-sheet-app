@@ -97,6 +97,8 @@ const ICON_PATHS = {
     // Dominion: a five-pointed crown with jewels.
     crown: `<path d="M3.5 18 2.8 7.5l5 4.2L12 4.5l4.2 7.2 5-4.2-.7 10.5z" ${wash}/><path d="M3.5 18h17M4 20.5h16"/>${dot(12, 4.5, 1)}${dot(2.8, 7.5, 0.9)}${dot(21.2, 7.5, 0.9)}${dot(8.5, 15, 0.7)}${dot(12, 15, 0.9)}${dot(15.5, 15, 0.7)}`,
     portrait: `<ellipse cx="12" cy="12" rx="8" ry="9.5" ${wash}/><ellipse cx="12" cy="12" rx="6.6" ry="8.1" stroke-width="1" opacity=".6"/><circle cx="12" cy="10" r="2.8"/><path d="M7.2 18.6c.9-2.7 2.8-4 4.8-4s3.9 1.3 4.8 4"/>`,
+    // Information: a ringed seal with an italic i (deity details and other "about this" buttons).
+    info: `<circle cx="12" cy="12" r="9" ${wash}/><path d="M12.6 10.5 11 17.2" stroke-width="2"/><path d="M10.2 17.2h2.6"/>${dot(13.2, 7.4, 1.25)}`,
 };
 // Older names kept so existing calls keep working.
 ICON_PATHS.brain = ICON_PATHS.eye;

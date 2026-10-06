@@ -1,5 +1,30 @@
 // js/inventory.js — Модуль инвентаря и расчета переносимого веса
 
+// Icons this module needs that the shared set may not have yet (added only if missing).
+(function invAddIcons() {
+    if (typeof SVG_ICONS !== 'object' || typeof ICON_ATTRS !== 'string') return;
+    const extra = {
+        search: '<circle cx="10.5" cy="10.5" r="6" fill="currentColor" fill-opacity=".12"/><path d="M15 15l5.5 5.5"/>',
+        eyeOff: '<path d="M2.5 12c2.6-4 5.8-6 9.5-6s6.9 2 9.5 6c-2.6 4-5.8 6-9.5 6s-6.9-2-9.5-6z" fill="currentColor" fill-opacity=".12"/><circle cx="12" cy="12" r="3"/><path d="M4 20 20 4"/>',
+    };
+    Object.entries(extra).forEach(([k, body]) => { if (!SVG_ICONS[k]) SVG_ICONS[k] = `<svg ${ICON_ATTRS}>${body}</svg>`; });
+    if (document.readyState !== 'loading' && typeof hydrateIcons === 'function') hydrateIcons();
+})();
+
+// Places that are not with the character: the Vault, homes, mounts, and bags left in the Vault.
+function invAwayPlaces(character = window.currentCharacter) {
+    const c = character || {};
+    return new Set(['Vault',
+        ...(c.holdings || []).map(h => h.id),
+        ...(c.mounts || []).map(m => m.id),
+        ...(c.bagsOfHolding || []).filter(b => b.location === 'Vault').map(b => b.id)]);
+}
+// Is this item with the character (carried, in the backpack, or in a bag of holding they carry)?
+function invIsWithCharacter(item, character = window.currentCharacter) {
+    return Boolean(item) && !invAwayPlaces(character).has(item.location || 'Backpack');
+}
+window.invIsWithCharacter = invIsWithCharacter;
+
 // Quantity for weight: a used-up stack (0, shown as DEPLETED) weighs nothing; no quantity at all means one.
 function invQty(i) { return (i.qty === undefined || i.qty === null || i.qty === '') ? 1 : Math.max(0, Number(i.qty) || 0); }
 
@@ -201,6 +226,8 @@ function transferAllCoins(direction) {
 
 let pendingValuableTransferIndex = null;
 
+// Gems and valuables: those with the character go in the pouch list, the rest in the vault list.
+// Each shows where it really is when that is not simply the pouch or the vault.
 function renderGemsLists() {
     const pouchContainer = document.getElementById('pouch-gems-list');
     const vaultContainer = document.getElementById('vault-gems-list');
@@ -220,29 +247,33 @@ function renderGemsLists() {
         const qty = Number(item.qty) || 1;
         const qtyBadge = qty > 1 ? `<span style="color: var(--accent-gold); font-weight: bold; margin-right: 3px;">x${qty}</span>` : '';
         const totalVal = (Number(item.valueGP) || 0) * qty;
-        const valText = qty > 1 ? `${totalVal} GP (${item.valueGP} ea)` : `${item.valueGP || 0} GP`;
-        const isPouch = item.location !== 'Vault';
+        const valText = qty > 1 ? `${totalVal} gp, ${item.valueGP} each` : `${item.valueGP || 0} gp`;
+        const loc = item.location || 'Pouch';
+        const isPouch = invIsWithCharacter({ location: loc });
+        const plain = loc === 'Pouch' || loc === 'Vault';
+        const placeTag = plain ? '' : `<span class="tag" title="Where it is kept">${escapeHtml(inventoryLocationName(item))}</span>`;
 
         const row = document.createElement('div');
+        row.className = 'inv-gem-row';
         row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: var(--inset); border: 1px solid color-mix(in srgb, var(--text-main) 5%, transparent); padding: 4px 6px; border-radius: 2px; font-size: 0.75rem; gap: 6px;';
-        
+
         const transferBtn = isPouch
-            ? `<button type="button" onclick="initiateValuableTransfer(${originalIndex})" style="background: transparent; border: 1px solid var(--info); color: var(--info); border-radius: 2px; padding: 1px 4px; font-size: 0.65rem; cursor: pointer;" title="Deposit to Vault">${getIcon('arrowRight', 14)} Vault</button>`
-            : `<button type="button" onclick="initiateValuableTransfer(${originalIndex})" style="background: transparent; border: 1px solid var(--accent-gold); color: var(--accent-gold); border-radius: 2px; padding: 1px 4px; font-size: 0.65rem; cursor: pointer;" title="Withdraw to Pouch">${getIcon('arrowLeft', 14)} Pouch</button>`;
+            ? `<button type="button" class="btn btn-sm" onclick="initiateValuableTransfer(${originalIndex})" title="Put it in the Vault">${getIcon('arrowRight', 14)} Vault</button>`
+            : `<button type="button" class="btn btn-sm" onclick="initiateValuableTransfer(${originalIndex})" title="Take it into your pouch">${getIcon('arrowLeft', 14)} Pouch</button>`;
 
         const spendOneBtn = qty > 1
-            ? `<button type="button" onclick="adjustItemQty(${originalIndex}, -1)" style="background: color-mix(in srgb, var(--text-main) 5%, transparent); border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 2px; padding: 0 4px; font-size: 0.65rem; cursor: pointer;" title="Spend / Discard 1">-1</button>`
+            ? `<button type="button" class="icon-btn" onclick="adjustItemQty(${originalIndex}, -1)" title="Spend or discard one" aria-label="Spend one ${escapeHtml(item.name)}">-1</button>`
             : '';
 
         row.innerHTML = `
             <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;" title="${escapeHtml(item.name)} (${valText})">
                 ${qtyBadge}<span style="color: ${isPouch ? 'var(--accent-gold)' : 'var(--text-main)'}; display: inline-flex; align-items: center; gap: 4px;">${getIcon('gem', 14)} ${escapeHtml(item.name)}</span>
-                <span style="color: var(--text-muted); font-size: 0.65rem;">(${valText})</span>
+                <span style="color: var(--text-muted); font-size: 0.65rem;">(${valText})</span> ${placeTag}
             </div>
             <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
                 ${spendOneBtn}
                 ${transferBtn}
-                <button type="button" onclick="removeInventoryItem(${originalIndex})" style="background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 0.75rem; padding: 0 2px;" title="Remove / Discard valuable" aria-label="Remove">${getIcon('close', 15)}</button>
+                <button type="button" class="icon-btn danger" onclick="removeInventoryItem(${originalIndex})" title="Remove / discard valuable" aria-label="Remove ${escapeHtml(item.name)}">${getIcon('close', 15)}</button>
             </div>
         `;
 
@@ -255,9 +286,37 @@ function renderGemsLists() {
         }
     });
 
-    if (pouchCount === 0) pouchContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.7rem;">No gems in pouch.</div>';
-    if (vaultCount === 0) vaultContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.7rem;">No gems in vault.</div>';
+    if (pouchCount === 0) pouchContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.7rem;">No gems or valuables with you.</div>';
+    if (vaultCount === 0) vaultContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.7rem;">No gems or valuables stored.</div>';
 }
+
+// "+ Add gem / valuable": a gem, jewellery or art object with its value (1 cn each, as a gem).
+async function addValuableItem(where = 'Pouch') {
+    if (!currentCharacter || typeof notesFormModal !== 'function') return;
+    const places = [['Pouch', 'Pouch (carried)'], ...inventoryPlaces()];
+    const res = await notesFormModal({
+        title: 'Add a gem or valuable', okText: 'Add',
+        fields: [
+            { key: 'name', label: 'What it is', placeholder: 'e.g. Ruby, gold necklace', wide: true },
+            { key: 'qty', label: 'How many', placeholder: '1' },
+            { key: 'value', label: 'Value (gp each)', placeholder: '100' },
+            { key: 'place', label: 'Kept in', type: 'select', options: places.map(([value, label]) => ({ value, label })) },
+        ],
+        values: { qty: '1', value: '', place: where },
+    });
+    if (!res || res === '__delete__') return;
+    const name = String(res.name || '').trim() || 'Gem';
+    const qty = Math.max(1, Math.round(Number(res.qty) || 1));
+    const valueGP = Math.max(0, Number(String(res.value || '').replace(/[^\d.]/g, '')) || 0);
+    const location = places.some(p => p[0] === res.place) ? res.place : 'Pouch';
+    if (!Array.isArray(currentCharacter.inventory)) currentCharacter.inventory = [];
+    currentCharacter.inventory.push({ name, qty, weight: 1, valueGP, location, isValuable: true });
+    mergeIdenticalValuables();
+    syncInventoryUI();
+    if (typeof debouncedSave === 'function') debouncedSave();
+    if (typeof sheetToast === 'function') sheetToast(`Added ${qty > 1 ? qty + ' × ' : ''}${name} (${valueGP} gp${qty > 1 ? ' each' : ''}).`);
+}
+window.addValuableItem = addValuableItem;
 
 function initiateValuableTransfer(index) {
     if (!currentCharacter || !currentCharacter.inventory?.[index]) return;
@@ -266,7 +325,7 @@ function initiateValuableTransfer(index) {
 
     // Если предмет штучный, перекладываем мгновенно
     if (qty <= 1) {
-        const targetLoc = (item.location === 'Vault') ? 'Pouch' : 'Vault';
+        const targetLoc = invIsWithCharacter(item) ? 'Vault' : 'Pouch';
         item.location = targetLoc;
         mergeIdenticalValuables();
         syncInventoryUI();
@@ -286,7 +345,8 @@ function initiateValuableTransfer(index) {
     if (err) err.style.display = 'none';
     if (nameEl) nameEl.innerText = item.name;
     if (dirEl) {
-        dirEl.innerHTML = (item.location === 'Vault') ? `Withdrawing: Vault ${getIcon('arrowRight', 14)} Pouch` : `Depositing: Pouch ${getIcon('arrowRight', 14)} Vault`;
+        const from = escapeHtml(inventoryLocationName(item));
+        dirEl.innerHTML = invIsWithCharacter(item) ? `Depositing: ${from} ${getIcon('arrowRight', 14)} Vault` : `Withdrawing: ${from} ${getIcon('arrowRight', 14)} Pouch`;
     }
     if (availEl) availEl.innerText = `Available: ${qty}`;
     if (input) {
@@ -295,6 +355,7 @@ function initiateValuableTransfer(index) {
     }
 
     if (modal) modal.style.display = 'flex';
+    invWatchForm('valuable-transfer-modal');
 }
 
 function closeValuableTransferModal() {
@@ -304,7 +365,7 @@ function closeValuableTransferModal() {
 }
 
 function handleValuableTransferModalBackdrop(event) {
-    if (event.target && event.target.id === 'valuable-transfer-modal') closeValuableTransferModal();
+    if (event.target && event.target.id === 'valuable-transfer-modal') invAskClose('valuable-transfer-modal', closeValuableTransferModal);
 }
 
 function setValuableTransferMax() {
@@ -351,7 +412,7 @@ function executeValuableTransfer() {
         return;
     }
 
-    const targetLocation = (item.location === 'Vault') ? 'Pouch' : 'Vault';
+    const targetLocation = invIsWithCharacter(item) ? 'Vault' : 'Pouch';
 
     if (moveQty === availableQty) {
         // Перенос всей стопки целиком
@@ -359,14 +420,8 @@ function executeValuableTransfer() {
     } else {
         // Отщепляем часть стопки в новую запись
         item.qty = availableQty - moveQty;
-        currentCharacter.inventory.push({
-            name: item.name,
-            qty: moveQty,
-            weight: item.weight || 1,
-            valueGP: item.valueGP || 0,
-            location: targetLocation,
-            isValuable: true
-        });
+        const { id: _id, uid: _uid, ...copy } = item;
+        currentCharacter.inventory.push({ ...JSON.parse(JSON.stringify(copy)), qty: moveQty, weight: Number(item.weight) || 0, valueGP: item.valueGP || 0, location: targetLocation, isValuable: true });
     }
 
     mergeIdenticalValuables();
@@ -375,13 +430,19 @@ function executeValuableTransfer() {
     if (typeof debouncedSave === 'function') debouncedSave();
 }
 
+// Item descriptions are folded away; the ids of the open ones are remembered while the sheet is open.
+const invOpenDesc = new Set();
 function toggleInvItemDesc(index) {
+    const item = currentCharacter?.inventory?.[index];
     const el = document.getElementById(`inv-desc-${index}`);
-    const btn = document.getElementById(`inv-desc-toggle-${index}`);
-    if (!el) return;
-    const isHidden = el.style.display === 'none';
-    el.style.display = isHidden ? 'block' : 'none';
-    if (btn) btn.innerHTML = getIcon(isHidden ? 'up' : 'down', 15);
+    if (!el || !item) return;
+    const open = el.hidden;
+    el.hidden = !open;
+    if (item.id) { if (open) invOpenDesc.add(item.id); else invOpenDesc.delete(item.id); }
+    document.querySelectorAll(`[data-desc-for="${index}"]`).forEach(b => {
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (b.classList.contains('inv-desc-toggle')) { b.innerHTML = getIcon(open ? 'up' : 'down', 15); b.title = open ? 'Hide the description' : 'Show the description'; }
+    });
 }
 
 function consumeAmmunition(index, amount = 1) {
@@ -391,7 +452,7 @@ function consumeAmmunition(index, amount = 1) {
 
     const currentQty = Number(item.qty) || 0;
     if (currentQty <= 0) {
-        alert(`${item.name} is depleted! Refill or purchase more.`);
+        if (typeof sheetToast === 'function') sheetToast(`${item.name} is used up: refill or buy more.`);
         return;
     }
 
@@ -429,7 +490,7 @@ function renderWeaponsList() {
     const weapons = items.filter(i => !(i.isValuable || i.valueGP > 0) && isWeaponOrAmmo(i));
 
     if (weapons.length === 0) {
-        list.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No carried weapons or ammunition. Click "+ Add Weapon / Ammo" to record weapons.</div>';
+        list.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No weapons or ammunition yet. Use the Catalogue or "+ Add Weapon / Ammo" to record them.</div>';
         return;
     }
 
@@ -449,9 +510,15 @@ function renderMagicItemsList() {
     list.innerHTML = '';
     const items = (currentCharacter.inventory || []).filter(i => !(i.isValuable || i.valueGP > 0) && isMagicItem(i));
     const count = document.getElementById('magic-items-count');
-    if (count) count.innerText = items.length;
+    if (count) {
+        // Count pieces with the character; things in the Vault, at home or on a mount are counted apart.
+        const pieces = list => list.reduce((n, i) => n + Math.max(1, invQty(i)), 0);
+        const withYou = pieces(items.filter(i => invIsWithCharacter(i))), away = pieces(items.filter(i => !invIsWithCharacter(i)));
+        count.innerText = `${withYou} carried${away ? `, ${away} stored` : ''}`;
+        count.title = 'Carried: with the character (backpack, belt, a bag of holding they carry). Stored: in the Vault, at a home or on a mount.';
+    }
     if (items.length === 0) {
-        list.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No magic items carried. Use the Catalogue to add potions, scrolls, wands, rings and more.</div>';
+        list.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No magic items yet. Use the Catalogue to add potions, scrolls, wands, rings and more.</div>';
         return;
     }
     renderCustomItemList(items, list, false);
@@ -513,7 +580,7 @@ function inventoryPlaces(extra) {
 
 // Same item apart from where it is and how many: such stacks are merged when moved together.
 function sameItemStack(a, b) {
-    const strip = x => { const { qty, location, forTrade, id, ...rest } = x; return JSON.stringify(rest); };
+    const strip = x => { const { qty, location, forTrade, id, uid, ...rest } = x; return JSON.stringify(rest); };
     return strip(a) === strip(b);
 }
 
@@ -649,10 +716,15 @@ function inventoryShowFilter(item) {
     if (s.places.length && !s.places.includes(item.location || 'Backpack')) return false;
     return true;
 }
+// One spelling for every place, everywhere (row lists, item window, supplies, Show filter).
 function inventoryLocationName(item) {
+    const loc = String((item && item.location) || 'Backpack');
+    if (loc === 'Pouch') return 'Pouch';
     const c = currentCharacter || {};
-    const box = [...(c.bagsOfHolding || []), ...(c.mounts || []), ...(c.holdings || [])].find(x => x.id === item.location);
-    return box ? box.name : String(item.location || 'Backpack');
+    const lost = (c.holdings || []).find(h => h.id === loc && h.status === 'lost');
+    if (lost) return `Home: ${lost.name}`;
+    const hit = inventoryPlaces().find(p => p[0] === loc);
+    return hit ? hit[1] : loc;
 }
 function sortInventorySubset(subset) {
     const mode = (currentCharacter && currentCharacter.inventorySort) || 'added';
@@ -703,7 +775,7 @@ function renderInventoryToolbar() {
         // Any other place an item was put (older or hand-typed locations).
         (c.inventory || []).forEach(i => { const l = i.location || 'Backpack'; if (!places.some(p => p[0] === l)) places.push([l, l]); });
         const count = pred => (c.inventory || []).filter(pred).length;
-        const box = (val, label, n, checked) => `<label class="inv-show-opt"><input type="checkbox" ${checked ? 'checked' : ''} onchange="setInventoryShow('${escapeHtml(val).replace(/'/g, '&#39;')}', this.checked)"> <span>${escapeHtml(label)}</span> <span class="inv-show-n">${n}</span></label>`;
+        const box = (val, label, n, checked) => `<label class="inv-show-opt"><input type="checkbox" ${checked ? 'checked' : ''} data-v="${escapeHtml(val)}" onchange="setInventoryShow(this.dataset.v, this.checked)"> <span>${escapeHtml(label)}</span> <span class="inv-show-n">${n}</span></label>`;
         const placeNames = st.places.map(p => (places.find(x => x[0] === p) || [p, p])[1]);
         const summary = !st.trade && !st.places.length ? `All items (${count(() => true)})`
             : [st.trade ? 'For trade' : '', placeNames.length > 2 ? `${placeNames.length} places` : placeNames.join(' + ')].filter(Boolean).join(' · ')
@@ -749,7 +821,7 @@ function renderInventoryToolbar() {
         const pieces = trade.reduce((t, i) => t + Math.max(1, Number(i.qty) || 0), 0);
         sum.innerHTML = trade.length
             ? `${getIcon('coin', 13)} For trade: <strong>${pieces}</strong> item${pieces === 1 ? '' : 's'}${value ? ` · list price <strong>${typeof fmtCost === 'function' ? fmtCost(value) : value + ' gp'}</strong>` : ''}`
-            : '<span class="ledger-note">Mark items with the coin button to put them up for trade.</span>';
+            : '<span class="ledger-note">Mark items with their “Trade” button to put them up for trade.</span>';
     }
 }
 window.setInventorySort = setInventorySort;
@@ -796,7 +868,7 @@ function renderCustomItemList(subset, container, isWeaponSection) {
             : '';
 
         const cursedBadge = item.isCursed
-            ? `<span style="font-size: 0.65rem; color: var(--danger); font-weight: bold; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); padding: 0 4px; border-radius: 2px;" style="display: inline-flex; align-items: center; gap: 3px;">${getIcon('skull', 12)} CURSED</span>`
+            ? `<span style="font-size: 0.65rem; color: var(--danger); font-weight: bold; background: color-mix(in srgb, var(--danger) 15%, transparent); border: 1px solid var(--danger); padding: 0 4px; border-radius: 2px; display: inline-flex; align-items: center; gap: 3px;">${getIcon('skull', 12)} Cursed</span>`
             : '';
 
         const hasDesc = Boolean(item.desc && item.desc.trim());
@@ -812,8 +884,8 @@ function renderCustomItemList(subset, container, isWeaponSection) {
         if (item.isArmor && item.baseAC !== undefined) extraBadges.push(`<span class="tag">AC ${Number(item.baseAC) - (Number(item.magicBonus) || 0)}</span>`);
         const hasCharges = item.charges !== undefined && item.charges !== null && item.charges !== '';
         const chargeHtml = hasCharges
-            ? `<span class="tag" style="color: var(--accent-gold);" title="${escapeHtml(item.chargesRule ? 'Found with ' + item.chargesRule : 'Charges left')}">${getIcon('zap', 11)} ${Number(item.charges)}</span>
-               <button type="button" onclick="useItemCharge(${originalIndex})" class="icon-btn" title="Use one charge" ${Number(item.charges) <= 0 ? 'disabled' : ''}>-1</button>`
+            ? `<span class="tag" style="color: var(--accent-gold);" title="${escapeHtml(item.chargesRule ? 'Charges left (found with ' + item.chargesRule + ')' : 'Charges left')}">${getIcon('zap', 11)} ${Number(item.charges)}</span>
+               <button type="button" onclick="useItemCharge(${originalIndex})" class="btn btn-sm inv-use-charge" title="Spend one charge of ${escapeHtml(item.name)}" ${Number(item.charges) <= 0 ? 'disabled' : ''}>Use charge</button>`
             : '';
         const stackValue = (Number(item.cost) || 0) * Math.max(1, qty);
         const costHtml = stackValue ? ` · <span title="Value of the stack">${typeof fmtCost === 'function' ? fmtCost(stackValue) : stackValue + ' gp'}</span>` : '';
@@ -826,20 +898,27 @@ function renderCustomItemList(subset, container, isWeaponSection) {
         let quickActionButton = '';
         if (isAmmoOrConsumable) {
             const isMissileAmmo = item.category === 'ammo' || item.name.toLowerCase().includes('arrow') || item.name.toLowerCase().includes('bolt');
-            const shootLabel = isMissileAmmo ? `-1 ${getIcon('bow', 13)} Shoot` : '-1 Use';
+            const shootLabel = isMissileAmmo ? `${getIcon('bow', 13)} Shoot` : 'Use one';
             quickActionButton = isDepleted
-                ? `<button type="button" onclick="refillAmmunition(${originalIndex}, 20)" style="background: color-mix(in srgb, var(--accent-gold) 15%, transparent); border: 1px solid var(--accent-gold); color: var(--accent-gold); border-radius: 2px; padding: 2px 6px; font-size: 0.7rem; font-weight: bold; cursor: pointer;">+ Refill</button>`
-                : `<button type="button" onclick="consumeAmmunition(${originalIndex}, 1)" style="background: color-mix(in srgb, var(--danger) 12%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); color: var(--danger); border-radius: 2px; padding: 2px 6px; font-size: 0.7rem; font-weight: bold; cursor: pointer;">${shootLabel}</button>`;
+                ? `<button type="button" class="btn btn-sm inv-quick" onclick="refillAmmunition(${originalIndex}, 20)" title="Put 20 back in the stack">+ Refill</button>`
+                : `<button type="button" class="btn btn-sm inv-quick inv-quick-use" onclick="consumeAmmunition(${originalIndex}, 1)" title="${isMissileAmmo ? 'Fire one: takes one from the stack' : 'Use one: takes one from the stack'}">${shootLabel}</button>`;
         }
+        // A row with a Shoot / Use / Use charge button does not also need a bare minus.
+        const hasQuickUse = Boolean(quickActionButton) || hasCharges;
+        const descOpen = hasDesc && invOpenDesc.has(item.id);
 
+        const nameHtml = hasDesc
+            ? `<button type="button" class="ledger-name inv-name-btn" data-desc-for="${originalIndex}" onclick="toggleInvItemDesc(${originalIndex})" aria-expanded="${descOpen}" aria-controls="inv-desc-${originalIndex}" title="Show or hide the description" style="color: ${isDepleted ? 'var(--danger)' : 'var(--text-main)'};">${escapeHtml(item.name)}</button>`
+            : `<strong class="ledger-name" style="color: ${isDepleted ? 'var(--danger)' : 'var(--text-main)'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.name)}</strong>`;
+        const tradeTitle = item.forTrade ? 'Marked for trade (counted in the For trade total). Click to keep it.' : 'Mark for trade: puts it on the For trade list with its value';
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1; min-width: 0;">
                     <input type="checkbox" class="inv-pick" ${picked ? 'checked' : ''} onchange="toggleInvPick('${escapeHtml(String(item.id))}', this.checked)" title="Tick to move, mark or delete several items at once" aria-label="Select ${escapeHtml(item.name)}">
                     <span style="font-size: 0.75rem; color: ${isDepleted ? 'var(--danger)' : 'var(--accent-gold)'}; font-weight: bold; background: ${isDepleted ? 'color-mix(in srgb, var(--danger) 20%, transparent)' : 'var(--accent-gold-dim)'}; padding: 1px 6px; border-radius: 2px;">
-                        ${isDepleted ? 'DEPLETED' : `x${qty}`}
+                        ${isDepleted ? 'Used up' : `x${qty}`}
                     </span>
-                    <strong class="ledger-name" style="color: ${isDepleted ? 'var(--danger)' : 'var(--text-main)'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.name)}</strong>
+                    ${nameHtml}
                     ${magicBadge}
                     ${cursedBadge}
                     ${extraBadges.join('')}
@@ -854,19 +933,19 @@ function renderCustomItemList(subset, container, isWeaponSection) {
                     ${chargeHtml}
                     ${quickActionButton}
                     <div style="display: flex; gap: 3px; align-items: center;">
-                        <button type="button" onclick="adjustItemQty(${originalIndex}, -1)" class="icon-btn">-</button>
-                        <button type="button" onclick="adjustItemQty(${originalIndex}, 1)" class="icon-btn">+</button>
-                        ${hasDesc ? `<button type="button" id="inv-desc-toggle-${originalIndex}" onclick="toggleInvItemDesc(${originalIndex})" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.7rem; padding: 0 3px;" title="Description">${getIcon('up', 15)}</button>` : ''}
+                        ${hasQuickUse ? '' : `<button type="button" onclick="adjustItemQty(${originalIndex}, -1)" class="icon-btn" title="One fewer" aria-label="One fewer ${escapeHtml(item.name)}">-</button>`}
+                        <button type="button" onclick="adjustItemQty(${originalIndex}, 1)" class="icon-btn" title="One more" aria-label="One more ${escapeHtml(item.name)}">+</button>
+                        ${hasDesc ? `<button type="button" id="inv-desc-toggle-${originalIndex}" class="icon-btn inv-desc-toggle" data-desc-for="${originalIndex}" onclick="toggleInvItemDesc(${originalIndex})" aria-expanded="${descOpen}" aria-controls="inv-desc-${originalIndex}" title="${descOpen ? 'Hide the description' : 'Show the description'}" aria-label="Description of ${escapeHtml(item.name)}">${getIcon(descOpen ? 'up' : 'down', 15)}</button>` : ''}
                         ${typeof slotsForItem === 'function' && slotsForItem(item).length ? `<button type="button" onclick="equipInventoryItem(${originalIndex})" class="btn btn-sm" title="Put on or wield (${slotsForItem(item).map(s => SLOT_LABELS[s]).join(' or ')})">Equip</button>` : ''}
-                        <button type="button" onclick="toggleItemForTrade(${originalIndex})" class="icon-btn inv-trade-btn${item.forTrade ? ' on' : ''}" title="${item.forTrade ? 'Marked for trade: click to keep it' : 'Mark for trade'}" aria-pressed="${item.forTrade ? 'true' : 'false'}" aria-label="${item.forTrade ? 'Unmark' : 'Mark'} ${escapeHtml(item.name)} for trade">${getIcon('coin', 14)}</button>
-                        <button type="button" onclick="editInventoryItem(${originalIndex})" class="icon-btn" title="Edit item" aria-label="Edit ${escapeHtml(item.name)}">${getIcon('print', 14)}</button>
+                        <button type="button" onclick="toggleItemForTrade(${originalIndex})" class="icon-btn inv-trade-btn${item.forTrade ? ' on' : ''}" title="${tradeTitle}" aria-pressed="${item.forTrade ? 'true' : 'false'}" aria-label="For trade: ${escapeHtml(item.name)}">${getIcon('coin', 14)}<span class="inv-trade-lbl">Trade</span></button>
+                        <button type="button" onclick="editInventoryItem(${originalIndex})" class="icon-btn" title="Edit item" aria-label="Edit ${escapeHtml(item.name)}">${getIcon('edit', 14)}</button>
                         <button type="button" onclick="removeInventoryItem(${originalIndex})" class="icon-btn danger" title="Remove item" aria-label="Remove ${escapeHtml(item.name)}">${getIcon('close', 15)}</button>
                     </div>
                 </div>
             </div>
 
             ${hasDesc ? `
-                <div id="inv-desc-${originalIndex}" class="ledger-note" style="word-break: break-word;">
+                <div id="inv-desc-${originalIndex}" class="ledger-note inv-item-desc" style="word-break: break-word;" ${descOpen ? '' : 'hidden'}>
                     ${escapeHtml(item.desc)}
                 </div>
             ` : ''}
@@ -878,43 +957,15 @@ function renderCustomItemList(subset, container, isWeaponSection) {
 function populateItemLocationSelect() {
     const select = document.getElementById('item-location-input');
     if (!select || !currentCharacter) return;
-    select.innerHTML = `
-        <option value="Carried">Carried / Belt</option>
-        <option value="Backpack" selected>Backpack</option>
-        <option value="Sack">Sack</option>
-        <option value="Saddlebags">Saddlebags (General)</option>
-        <option value="Vault">Vault / Stronghold</option>
-    `;
-    const bags = currentCharacter.bagsOfHolding || [];
-    bags.forEach(bag => {
-        const opt = document.createElement('option');
-        opt.value = bag.id;
-        opt.textContent = `[Bag] ${bag.name}`;
-        select.appendChild(opt);
-    });
-
-    const mounts = currentCharacter.mounts || [];
-    mounts.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = `${m.name} (Saddlebags)`;
-        select.appendChild(opt);
-    });
-
-    (currentCharacter.holdings || []).filter(h => h.status !== 'lost').forEach(h => {
-        const opt = document.createElement('option');
-        opt.value = h.id;
-        opt.textContent = `[Home] ${h.name}`;
-        select.appendChild(opt);
-    });
+    select.innerHTML = inventoryPlaces().map(([v, l]) => `<option value="${escapeHtml(v)}" ${v === 'Backpack' ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('');
 }
 
 let editingItemIndex = null;
 function setItemModalMode(editing) {
     const title = document.getElementById('item-modal-title');
     const btn = document.getElementById('item-modal-save');
-    if (title) title.innerText = editing ? 'Edit Inventory Item' : 'Add Inventory Item';
-    if (btn) btn.innerText = editing ? 'Save Changes' : 'Add Item';
+    if (title) title.innerText = editing ? 'Edit item' : 'Add an item';
+    if (btn) btn.innerText = editing ? 'Save changes' : 'Add item';
 }
 function editInventoryItem(index) {
     if (!currentCharacter || !Array.isArray(currentCharacter.inventory)) return;
@@ -924,13 +975,14 @@ function editInventoryItem(index) {
     editingItemIndex = index;
     setItemModalMode(true);
     safeSetVal('item-name-input', item.name || '');
-    safeSetVal('item-qty-input', Number(item.qty) || 1);
+    safeSetVal('item-qty-input', invQty(item));
     safeSetVal('item-weight-input', Number(item.weight) || 0);
     safeSetVal('item-magic-bonus', String(Number(item.magicBonus) || 0));
     safeSetVal('item-charges-input', item.charges ?? '');
+    safeSetVal('item-cost-input', Number(item.cost) ? Number(item.cost) : '');
     safeSetVal('item-desc-input', item.desc || '');
     const loc = document.getElementById('item-location-input');
-    if (loc && item.location) { if (![...loc.options].some(o => o.value === item.location)) loc.add(new Option(item.location, item.location)); loc.value = item.location; }
+    if (loc && item.location) { if (![...loc.options].some(o => o.value === item.location)) loc.add(new Option(inventoryLocationName(item), item.location)); loc.value = item.location; }
     const cursedBox = document.getElementById('item-is-cursed'); if (cursedBox) cursedBox.checked = Boolean(item.isCursed);
     const concBox = document.getElementById('item-requires-concentration'); if (concBox) concBox.checked = Boolean(item.concentration);
     safeSetVal('item-slot-input', item.slot || '');
@@ -942,6 +994,7 @@ function editInventoryItem(index) {
     safeSetVal('item-magic-type', MAGIC_ITEM_GROUPS.includes(item.group) ? item.group : 'misc');
     const magicType = document.getElementById('item-magic-type'); if (magicType) magicType.disabled = !(magicBox && magicBox.checked);
     renderItemAbilityEffectRows(typeof itemAbilityMods === 'function' ? itemAbilityMods(item) : (item.abilityMods || []));
+    resetFormEdits(document.querySelector('#item-modal .card'));
 }
 
 // ----- Ability-score effects in the item form -----
@@ -997,9 +1050,10 @@ function openAddItemModal(defaultCategory = 'equipment', opts = {}) {
 
     safeSetVal('item-name-input', '');
     safeSetVal('item-qty-input', defaultCategory === 'ammo' ? 20 : 1);
-    safeSetVal('item-weight-input', defaultCategory === 'ammo' ? 1 : 10);
+    safeSetVal('item-weight-input', defaultCategory === 'ammo' ? 1 : 0);
     safeSetVal('item-magic-bonus', '0');
     safeSetVal('item-charges-input', '');
+    safeSetVal('item-cost-input', '');
     safeSetVal('item-desc-input', '');
     
     const catSelect = document.getElementById('item-category-select');
@@ -1019,13 +1073,17 @@ function openAddItemModal(defaultCategory = 'equipment', opts = {}) {
 
     if (typeof populateItemLocationSelect === 'function') populateItemLocationSelect();
     modal.style.display = 'flex';
+    const card = modal.querySelector('.card');
+    watchFormEdits(card); resetFormEdits(card);
 }
 
 function saveInventoryItem() {
     if (!currentCharacter) return;
     const name = document.getElementById('item-name-input')?.value.trim();
     const category = document.getElementById('item-category-select')?.value || 'equipment';
-    const qty = Math.max(1, Number(document.getElementById('item-qty-input')?.value) || 1);
+    const qtyIn = Number(document.getElementById('item-qty-input')?.value);
+    // A new item is at least one; an edited stack may stay used up (0).
+    const qty = editingItemIndex !== null ? Math.max(0, Math.round(Number.isFinite(qtyIn) ? qtyIn : 1)) : Math.max(1, Math.round(qtyIn) || 1);
     const weight = Math.max(0, Number(document.getElementById('item-weight-input')?.value) || 0);
     const location = document.getElementById('item-location-input')?.value || 'Backpack';
     const magicBonus = Number(document.getElementById('item-magic-bonus')?.value) || 0;
@@ -1034,6 +1092,9 @@ function saveInventoryItem() {
     const desc = document.getElementById('item-desc-input')?.value.trim() || '';
     const chargesVal = document.getElementById('item-charges-input')?.value;
     const charges = (chargesVal !== '' && !isNaN(chargesVal)) ? Number(chargesVal) : undefined;
+    // Value in gp of one item (item.cost: the trade summary and the Value sort use it).
+    const costIn = Math.max(0, Number(document.getElementById('item-cost-input')?.value) || 0);
+    const applyCost = it => { if (costIn) it.cost = costIn; else delete it.cost; };
     const slot = document.getElementById('item-slot-input')?.value || undefined;
     const activeWhileCarried = document.getElementById('item-active-carried')?.checked || false;
     const abilityMods = readItemAbilityEffects();
@@ -1084,6 +1145,7 @@ function saveInventoryItem() {
         Object.assign(it, { name, category, qty, weight, location, magicBonus, isCursed, concentration, charges, desc, activeWhileCarried, abilityMods });
         if (it.category !== 'weapon') applyDefence(it);
         applyMagic(it);
+        applyCost(it);
         // Weapons, armour and wands keep their own slot rules; anything else may be given a worn slot.
         if (!it.isArmor && !it.isShield && it.category !== 'weapon' && !['wand', 'staff', 'rod'].includes(it.group)) { if (slot) it.slot = slot; else if (it.group !== 'ring') delete it.slot; }
         editingItemIndex = null;
@@ -1111,6 +1173,7 @@ function saveInventoryItem() {
     };
     if (category !== 'weapon' && category !== 'ammo') applyDefence(fresh);
     applyMagic(fresh);
+    applyCost(fresh);
     currentCharacter.inventory.push(fresh);
 
     closeAddItemModal();
@@ -1122,10 +1185,16 @@ function saveInventoryItem() {
 function closeAddItemModal() {
     const modal = document.getElementById('item-modal');
     if (modal) modal.style.display = 'none';
+    resetFormEdits(modal && modal.querySelector('.card'));
+}
+// Esc or a click outside: ask before throwing away what was typed.
+async function invCloseItemModalAsk() {
+    if (!(await okToDiscard(document.querySelector('#item-modal .card')))) return;
+    closeAddItemModal();
 }
 
 function handleItemModalBackdrop(event) {
-    if (event.target && event.target.id === 'item-modal') closeAddItemModal();
+    if (event.target && event.target.id === 'item-modal') invCloseItemModalAsk();
 }
 
 function adjustItemQty(index, delta) {
@@ -1185,14 +1254,16 @@ async function removeInventoryItem(index) {
 
 let currentTransferDirection = 'deposit'; // 'deposit' (Pouch -> Vault) | 'withdraw' (Vault -> Pouch)
 
-function openCoinTransferModal() {
+// direction: 'deposit' (Pouch -> Vault, from the pouch card) or 'withdraw' (Vault -> Pouch, from the vault card).
+function openCoinTransferModal(direction = 'deposit') {
     const modal = document.getElementById('coin-transfer-modal');
     if (!modal) return;
     const err = document.getElementById('transfer-modal-error');
     if (err) err.style.display = 'none';
-    setTransferDirection('deposit');
+    setTransferDirection(direction === 'withdraw' ? 'withdraw' : 'deposit');
     updateTransferBalancePreview();
     modal.style.display = 'flex';
+    invWatchForm('coin-transfer-modal');
 }
 
 function closeCoinTransferModal() {
@@ -1201,7 +1272,7 @@ function closeCoinTransferModal() {
 }
 
 function handleCoinTransferModalBackdrop(event) {
-    if (event.target && event.target.id === 'coin-transfer-modal') closeCoinTransferModal();
+    if (event.target && event.target.id === 'coin-transfer-modal') invAskClose('coin-transfer-modal', closeCoinTransferModal);
 }
 
 function setTransferDirection(dir) {
@@ -1251,7 +1322,7 @@ function setTransferMaxAmount() {
 function executeCoinTransfer() {
     if (!currentCharacter) return;
     const coinType = document.getElementById('transfer-coin-select')?.value || 'gp';
-    const amount = Math.max(1, Number(document.getElementById('transfer-amount-input')?.value) || 0);
+    const amount = Math.floor(Number(document.getElementById('transfer-amount-input')?.value) || 0);
     const errEl = document.getElementById('transfer-modal-error');
 
     if (!currentCharacter.coins) currentCharacter.coins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
@@ -1308,7 +1379,7 @@ async function removeBagOfHolding(bagId) {
     const items = currentCharacter.inventory || [];
     const contentsWeight = getBagContentsWeight(bag, items);
     if (contentsWeight > 0) {
-        alert('Cannot remove Bag of Holding: empty its coins and items first!');
+        await sheetAlert(`Empty ${bag.name} first: take out its coins and items, then remove it.`);
         return;
     }
 
@@ -1337,6 +1408,8 @@ function renderBagsOfHolding() {
     const bags = currentCharacter.bagsOfHolding || [];
     const items = currentCharacter.inventory || [];
 
+    const emptyCn = document.getElementById('boh-empty-cn');
+    if (emptyCn) emptyCn.textContent = String(BAG_OF_HOLDING_EMPTY_CN);
     if (bags.length === 0) {
         container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; grid-column: 1/-1;">No Bags of Holding owned. Click "+ Add Bag of Holding" if your character has found one.</div>';
         return;
@@ -1412,6 +1485,7 @@ function openBagCoinModal(bagId) {
     if (title) title.innerText = `Coins: ${bag.name}`;
     setBagCoinDirection('in');
     if (modal) modal.style.display = 'flex';
+    invWatchForm('bag-coin-modal');
 }
 
 function closeBagCoinModal() {
@@ -1421,7 +1495,7 @@ function closeBagCoinModal() {
 }
 
 function handleBagCoinModalBackdrop(event) {
-    if (event.target && event.target.id === 'bag-coin-modal') closeBagCoinModal();
+    if (event.target && event.target.id === 'bag-coin-modal') invAskClose('bag-coin-modal', closeBagCoinModal);
 }
 
 function setBagCoinDirection(dir) {
@@ -1456,8 +1530,9 @@ function executeBagCoinTransfer() {
     if (!currentCharacter.coins) currentCharacter.coins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
 
     const coinType = document.getElementById('bag-coin-select')?.value || 'gp';
-    const amount = Math.max(1, Number(document.getElementById('bag-coin-amount')?.value) || 0);
+    const amount = Math.floor(Number(document.getElementById('bag-coin-amount')?.value) || 0);
     const errEl = document.getElementById('bag-coin-error');
+    if (amount <= 0) { if (errEl) { errEl.innerText = 'Please enter an amount greater than 0.'; errEl.style.display = 'block'; } return; }
 
     const source = (bagCoinDirection === 'in') ? currentCharacter.coins : bag.coins;
     const target = (bagCoinDirection === 'in') ? bag.coins : currentCharacter.coins;
@@ -1579,6 +1654,7 @@ function openAddMountModal() {
         sel.value = MOUNT_TYPES_DB[keep] ? keep : 'riding_horse';
     }
     modal.style.display = 'flex';
+    invWatchForm('mount-modal');
 }
 
 function closeAddMountModal() {
@@ -1587,15 +1663,11 @@ function closeAddMountModal() {
 }
 
 function handleMountModalBackdrop(event) {
-    if (event.target && event.target.id === 'mount-modal') closeAddMountModal();
+    if (event.target && event.target.id === 'mount-modal') invAskClose('mount-modal', closeAddMountModal);
 }
 
 function saveNewMount() {
-    console.log('saveNewMount triggered');
-    if (!currentCharacter) {
-        alert('No character loaded!');
-        return;
-    }
+    if (!currentCharacter) return;
 
     const nameInput = document.getElementById('mount-name-input');
     const typeSelect = document.getElementById('mount-type-select');
@@ -1609,7 +1681,7 @@ function saveNewMount() {
             errEl.innerText = 'Please enter a name for the mount or transport.';
             errEl.style.display = 'block';
         } else {
-            alert('Please enter a name for the mount or transport.');
+            sheetAlert('Please enter a name for the mount or transport.');
         }
         return;
     }
@@ -1648,7 +1720,7 @@ async function removeMount(mountId) {
     const items = currentCharacter.inventory || [];
     const cargoWeight = getMountContentsWeight(mount, items);
     if (cargoWeight > 0) {
-        alert('Cannot remove mount: unload all items and saddlebag coins first!');
+        await sheetAlert(`Unload ${mount.name} first: take off all items and saddlebag coins, then remove it.`);
         return;
     }
 
@@ -1674,6 +1746,7 @@ function openMountCoinModal(mountId) {
     if (title) title.innerText = `Saddlebags: ${mount.name}`;
     setMountCoinDirection('in');
     if (modal) modal.style.display = 'flex';
+    invWatchForm('mount-coin-modal');
 }
 
 function closeMountCoinModal() {
@@ -1683,7 +1756,7 @@ function closeMountCoinModal() {
 }
 
 function handleMountCoinModalBackdrop(event) {
-    if (event.target && event.target.id === 'mount-coin-modal') closeMountCoinModal();
+    if (event.target && event.target.id === 'mount-coin-modal') invAskClose('mount-coin-modal', closeMountCoinModal);
 }
 
 function setMountCoinDirection(dir) {
@@ -1718,8 +1791,9 @@ function executeMountCoinTransfer() {
     if (!currentCharacter.coins) currentCharacter.coins = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
 
     const coinType = document.getElementById('mount-coin-select')?.value || 'gp';
-    const amount = Math.max(1, Number(document.getElementById('mount-coin-amount')?.value) || 0);
+    const amount = Math.floor(Number(document.getElementById('mount-coin-amount')?.value) || 0);
     const errEl = document.getElementById('mount-coin-error');
+    if (amount <= 0) { if (errEl) { errEl.innerText = 'Please enter an amount greater than 0.'; errEl.style.display = 'block'; } return; }
 
     const source = (mountCoinDirection === 'in') ? currentCharacter.coins : mount.coins;
     const target = (mountCoinDirection === 'in') ? mount.coins : currentCharacter.coins;
@@ -1760,3 +1834,21 @@ document.addEventListener('click', e => {
     const dd = document.getElementById('inv-show');
     if (dd && dd.open && !dd.contains(e.target)) dd.open = false;
 });
+
+// ---------------------------------------------------------------------------
+// Esc and clicks outside. Every window here holds a small form: a click outside or Esc
+// closes it, asking first only if something was typed.
+function invWatchForm(id) {
+    const card = document.querySelector(`#${id} .card`);
+    if (card) { watchFormEdits(card); resetFormEdits(card); }
+}
+async function invAskClose(id, close) {
+    if (!(await okToDiscard(document.querySelector(`#${id} .card`)))) return;
+    close();
+}
+if (typeof registerModalCloser === 'function') {
+    registerModalCloser('item-modal', invCloseItemModalAsk);
+    [['valuable-transfer-modal', closeValuableTransferModal], ['coin-transfer-modal', closeCoinTransferModal], ['bag-coin-modal', closeBagCoinModal],
+     ['mount-modal', closeAddMountModal], ['mount-coin-modal', closeMountCoinModal]]
+        .forEach(([id, close]) => registerModalCloser(id, () => invAskClose(id, close)));
+}

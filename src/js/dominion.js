@@ -208,7 +208,8 @@ function awardRawXp(amount, text) {
     const lvl = Number(currentCharacter.level) || 1;
     const xpBefore = Number(currentCharacter.experiencePoints) || 0;
     let newXp = xpBefore + amount;
-    if (table && lvl < 36 && table[lvl + 2] !== undefined) newXp = Math.min(newXp, table[lvl + 2] - 1);
+    if (table && lvl < 36) newXp = Math.min(newXp, typeof xpAwardCap === 'function' ? xpAwardCap(currentCharacter) : (table[lvl + 2] ?? Infinity) - 1);
+    const stageBefore = typeof getCreatureStage === 'function' ? getCreatureStage(currentCharacter) : null;
     currentCharacter.experiencePoints = newXp;
     let levelAfter = lvl;
     if (table && lvl < 36 && table[lvl + 1] !== undefined && newXp >= table[lvl + 1]) {
@@ -220,12 +221,16 @@ function awardRawXp(amount, text) {
     try { updateClassStats(); updateCombatVitals(); updateXPDisplay(); } catch (e) { console.error(e); }
     const credited = newXp - xpBefore;
     if (typeof addChronicleEntry === 'function') addChronicleEntry('xp', `${text}: +${credited.toLocaleString('en-US')} XP${credited < amount ? ' (capped: one level per award)' : ''}. Total ${newXp.toLocaleString('en-US')}.`, { awarded: amount, credited, total: newXp });
-    if (levelAfter > lvl && typeof openLevelUpDialog === 'function') openLevelUpDialog(lvl, levelAfter);
+    const stageAfter = typeof getCreatureStage === 'function' ? getCreatureStage(currentCharacter) : null;
+    if (typeof openLevelUpDialog === 'function') {
+        if (stageBefore && stageAfter !== stageBefore) openLevelUpDialog(lvl, levelAfter, { stageFrom: stageBefore, stageTo: stageAfter });
+        else if (levelAfter > lvl) openLevelUpDialog(lvl, levelAfter);
+    }
     return credited;
 }
 function endDominionMonth() {
     const dm = dominionState(); if (!dm) return;
-    if (typeof calendarState === 'function') calendarState().dominionMonth = calParts(calendarState().t).monthAbs;
+    if (typeof calendarState === 'function') { calendarState().dominionMonth = calParts(calendarState().t).monthAbs; if (typeof renderGameClock === 'function') renderGameClock(); }
     const inc = dominionIncome(dm);
     const extraFamilies = Math.round(Number(document.getElementById('dom-month-families')?.value) || 0);
     const confAdj = Math.round(Number(document.getElementById('dom-month-confidence')?.value) || 0);
