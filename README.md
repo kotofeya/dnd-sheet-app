@@ -54,7 +54,7 @@ This is an unofficial fan project. Dungeons & Dragons, Mystara and the Rules Cyc
 
 The rules come from:
 
-- *Dungeons & Dragons Rules Cyclopedia* (TSR 1071) and the Mystara Gazetteers: GAZ3 *The Principalities of Glantri*, GAZ5 *The Elves of Alfheim*, GAZ13 *The Shadow Elves*, *Dawn of the Emperors* (Thyatis), and the PC1–PC3 creature crucibles.
+- *Dungeons & Dragons Rules Cyclopedia* (TSR 1071) and the Mystara Gazetteers.
 - *Dark Dungeons* (a free retro-clone of the Rules Cyclopedia).
 - *Codex Immortalis* by Marco Dalmonte, for the Immortals and what they grant their clerics.
 - *Tome of the Magic of Mystara*, vol. 1 (Arcane Magic) and vol. 2 (Divine Magic), for spell descriptions and each Immortal's additional spells.
